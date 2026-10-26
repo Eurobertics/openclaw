@@ -68,6 +68,19 @@ contain at most 50 session rows. Most warm cases select all 180 days in preparat
 | `data-usage-refresh`      | Refresh the full date range; await the query and retained visible session rows.      |
 | `data-usage-scroll`       | Scroll the session card into view; record its bounded mounted row count.             |
 
+The `data-usage-detail-*` scenarios supply 200 chart points and a capped 1,000-message
+conversation. The header represents the full receipt; search, role/tool filters,
+and tool choices use all admitted messages. At 100 or more matching messages, the
+existing page scroller mounts a virtual window plus overscan, endpoints, and
+focused disclosure neighbors; `mountedLogRows` records this DOM count separately
+from `suppliedLogs`. Shorter lists remain fully mounted. Native Tab/Shift+Tab must
+retain the focused summary and its adjacent targets. Manual disclosure state
+survives scrolling and filtering within the receipt; global Expand/Collapse applies
+to subsequently revealed rows, and a replacement receipt resets local overrides.
+Native browser Find and Select All cover mounted rows rather than the full receipt;
+the application's conversation search remains full-data. Assert those keyboard,
+disclosure, filtering, and endpoint contracts alongside the DOM reduction.
+
 ## Plugins and agents
 
 Installed plugins, catalog entries, skills, and tool summaries each contain 1,000
