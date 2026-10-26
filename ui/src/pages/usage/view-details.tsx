@@ -3,7 +3,6 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { JSX } from "@solidjs/web";
 import { createMemo, For, Show } from "solid-js";
 import { Icon } from "../../components/solid/icon.tsx";
-import { createMsFormatter } from "../../lib/format.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../lib/reactive/i18n.ts";
 import { parseSessionLog, prepareUsageDateRange, type ParsedSessionLog } from "./helpers.ts";
@@ -12,6 +11,7 @@ import { renderUsageRefreshStatus } from "./page-shell.tsx";
 import { createUsageRead, UsagePending, UsageReadStatus, type UsageRead } from "./read-status.tsx";
 import type { SessionLogRole, UsageContextDetail, UsageProps, UsageSessionEntry } from "./types.ts";
 import { renderSessionSummary } from "./view-session-summary.tsx";
+import { SessionLogList } from "./view-session-logs.tsx";
 import { deriveTimeSeries, TimeSeriesCompact } from "./view-timeseries.tsx";
 
 function pct(part: number, total: number): number {
@@ -484,8 +484,6 @@ function SessionLogsContent(props: {
   read: UsageRead;
   loading: boolean;
 }) {
-  const expandedState = createMemo(() => props.detail.sessionLogsExpanded);
-  const formatLogTimestamp = createMemo(() => createMsFormatter(undefined, t("common.na")));
   const state = createMemo(() => {
     const detail = props.detail;
     const {
@@ -640,53 +638,11 @@ function SessionLogsContent(props: {
               {t("usage.filters.clear")}
             </button>
           </div>
-          <div class="session-logs-list">
-            <For each={state().filteredEntries}>
-              {(entry) => {
-                const { log, toolInfo, cleanContent } = entry;
-                const roleLabel = () =>
-                  log.role === "user"
-                    ? t("usage.details.you")
-                    : log.role === "assistant"
-                      ? t("usage.overview.assistant")
-                      : t("usage.details.tool");
-                return (
-                  <div class={["session-log-entry", log.role === "user" ? "user" : "assistant"]}>
-                    <div class="session-log-meta">
-                      <span class="session-log-role">{roleLabel()}</span>
-                      <span>{formatLogTimestamp()(log.timestamp)}</span>
-                      {log.tokens ? (
-                        <>
-                          {" "}
-                          <span>{formatUsageTokens(log.tokens)}</span>{" "}
-                        </>
-                      ) : undefined}
-                    </div>
-                    <div class="session-log-content">{cleanContent}</div>
-                    {toolInfo.tools.length > 0 ? (
-                      <details class="session-log-tools" open={expandedState()}>
-                        <summary>{toolInfo.summary}</summary>
-                        <div class="session-log-tools-list">
-                          <For each={toolInfo.tools}>
-                            {([name, count]) => (
-                              <span class="session-log-tools-pill">
-                                {name} × {count}
-                              </span>
-                            )}
-                          </For>
-                        </div>
-                      </details>
-                    ) : undefined}
-                  </div>
-                );
-              }}
-            </For>
-            {state().filteredEntries.length === 0 ? (
-              <div class="usage-empty-block usage-empty-block--compact">
-                {t("usage.details.noMessagesMatch")}
-              </div>
-            ) : undefined}
-          </div>
+          <SessionLogList
+            entries={props.entries}
+            rows={state().filteredEntries}
+            expanded={props.detail.sessionLogsExpanded}
+          />
         </div>
       ) : (
         <div class="session-logs-compact">
