@@ -98,16 +98,19 @@ suite.define(() => {
             if (!active) {
               return;
             }
-            const pane = document.querySelector(".chat-pane-cache__pane--active");
-            const composer = pane?.querySelector(".agent-chat__composer-shell");
+            const cachedPane = document.querySelector(".chat-pane-cache__pane--active");
+            const composer = cachedPane?.querySelector(".agent-chat__composer-shell");
             if (composer?.checkVisibility()) {
               frames.push({
-                archived: Boolean(pane?.querySelector(".agent-chat__disabled-banner--replacement")),
+                archived: Boolean(
+                  cachedPane?.querySelector(".agent-chat__disabled-banner--replacement"),
+                ),
                 readOnly:
-                  pane?.textContent?.includes(
+                  cachedPane?.textContent?.includes(
                     "Only the session owner and members can act in this session.",
                   ) === true,
-                parent: pane?.querySelector(".chat-pane__parent-session")?.textContent ?? null,
+                parent:
+                  cachedPane?.querySelector(".chat-pane__parent-session")?.textContent ?? null,
                 height: composer.getBoundingClientRect().height,
               });
             }
