@@ -24,8 +24,6 @@ export function ChatSessionActivity(props: {
   const expanded = () =>
     Boolean(props.options.searchResult) ||
     (props.options.isToolMessageExpanded?.(disclosureId()) ?? false);
-  const count = () =>
-    props.group.messages.reduce((total, message) => total + (message.duplicateCount ?? 1), 0);
   return (
     <div
       class="chat-group tool chat-group--turn-block"
@@ -68,7 +66,7 @@ export function ChatSessionActivity(props: {
               group={props.group}
               options={{
                 ...props.options,
-                updateCount: count(),
+                updateCount: props.group.messages.length,
               }}
             />
             <Show when={!props.options.searchResult}>
