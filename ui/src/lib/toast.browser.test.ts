@@ -127,9 +127,9 @@ describe.skipIf(navigator.userAgent.toLowerCase().includes("jsdom"))("toast brow
       expect(rect(toast).right).toBeCloseTo(restingBounds.right, 0);
       expect(host.parentElement).toBe(modal.getOverlayContainer());
       await Promise.all([
-        new Promise<void>((resolve) =>
-          window.addEventListener("resize", () => resolve(), { once: true }),
-        ),
+        new Promise<void>((resolve) => {
+          window.addEventListener("resize", () => resolve(), { once: true });
+        }),
         useViewport(390),
       ]);
       const narrowBounds = rect(toast);
