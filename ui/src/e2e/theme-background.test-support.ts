@@ -2,31 +2,32 @@ import type { Locator } from "playwright";
 import { expect } from "vitest";
 import { finishElementAnimations } from "../test-helpers/animations.ts";
 
-export async function expectComposerSurface(composer: Locator, accessible = false) {
-  const surface = await composer.evaluate((element, solidSurface) => {
+export async function expectComposerSurface(composer: Locator) {
+  const surface = await composer.evaluate((element) => {
     const style = getComputedStyle(element);
     const probe = document.createElement("div");
     element.appendChild(probe);
-    probe.style.backgroundColor = solidSurface
-      ? "var(--chat-composer-surface)"
-      : "color-mix(in srgb, var(--chat-composer-surface) 78%, transparent)";
+    probe.style.backgroundColor = "var(--chat-composer-surface)";
     const expected = getComputedStyle(probe).backgroundColor;
+    probe.style.backgroundImage =
+      "linear-gradient(var(--chat-composer-surface), var(--chat-composer-surface))";
+    const expectedImage = getComputedStyle(probe).backgroundImage;
     probe.remove();
     return {
-      background: style.backgroundColor,
-      images: [
-        style.backgroundImage,
-        ...["::before", "::after"].map(
-          (pseudo) => getComputedStyle(element, pseudo).backgroundImage,
-        ),
-      ],
+      opaqueFill:
+        (style.backgroundColor === expected && style.backgroundImage === "none") ||
+        style.backgroundImage.replace(/(?:, none)+$/u, "") === expectedImage,
+      opacity: style.opacity,
+      images: ["::before", "::after"].map(
+        (pseudo) => getComputedStyle(element, pseudo).backgroundImage,
+      ),
       filter: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"),
-      expected,
     };
-  }, accessible);
+  });
   expect(surface).toMatchObject({
-    images: ["none", "none", "none"],
-    background: surface.expected,
+    opaqueFill: true,
+    opacity: "1",
+    images: ["none", "none"],
     filter: "none",
   });
 }
@@ -97,6 +98,14 @@ export async function readArtwork(shell: Locator, artworkDetail?: "fingerprint" 
       pixels.fillRect(0, 0, 1, 1);
       return [...pixels.getImageData(0, 0, 1, 1).data];
     };
+    // Uniform surfaces retain the precision of their computed sRGB colors.
+    const surfaceColor = (value: string) => {
+      if (!value.startsWith("color(srgb ")) {
+        return color(value);
+      }
+      const channels = value.slice(11, -1).split(/[ /]+/u).map(Number);
+      return [...channels.slice(0, 3).map((channel) => channel * 255), (channels[3] ?? 1) * 255];
+    };
     let ancestorCount = 0;
     const opaqueAncestors: string[] = [];
     // SPA navigation retains hidden chat panes and their unsent drafts.
@@ -146,7 +155,7 @@ export async function readArtwork(shell: Locator, artworkDetail?: "fingerprint" 
       : textarea
         ? getComputedStyle(textarea, "::placeholder")
         : null;
-    const composerLabel = color(placeholderStyle?.color ?? mutedColor);
+    const composerLabel = surfaceColor(placeholderStyle?.color ?? mutedColor);
     composerLabel[3] = composerLabel[3]! * Number(placeholderStyle?.opacity ?? 1);
     const baseColor = color(canvasColor);
     let visiblePaintedPixels = 0;
@@ -226,14 +235,26 @@ export async function readArtwork(shell: Locator, artworkDetail?: "fingerprint" 
       : null;
     let composerContrast: number | null = null;
     if (composer) {
-      // Add the composer underlay behind the measured artwork, then its translucent fill.
-      pixels.globalCompositeOperation = "destination-over";
-      pixels.fillStyle = style.backgroundColor;
-      pixels.fillRect(0, 0, canvas.width, canvas.height);
-      pixels.globalCompositeOperation = "source-over";
-      pixels.fillStyle = getComputedStyle(composer).backgroundColor;
-      pixels.fillRect(0, 0, canvas.width, canvas.height);
-      composerContrast = minContrast(composer.getBoundingClientRect(), composerLabel, false);
+      const bounds = composer.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        throw new Error("Contrast must be measured on a visible reading surface");
+      }
+      probe.style.backgroundColor = "var(--chat-composer-surface)";
+      composer.appendChild(probe);
+      const fill = surfaceColor(getComputedStyle(probe).backgroundColor);
+      probe.remove();
+      const base = surfaceColor(canvasColor);
+      const fillAlpha = fill[3]! / 255;
+      const background = fill
+        .slice(0, 3)
+        .map((channel, index) => channel * fillAlpha + base[index]! * (1 - fillAlpha));
+      const alpha = composerLabel[3]! / 255;
+      const foreground = background.map(
+        (channel, index) => composerLabel[index]! * alpha + channel * (1 - alpha),
+      );
+      const bg = luminance(background[0]!, background[1]!, background[2]!);
+      const fg = luminance(foreground[0]!, foreground[1]!, foreground[2]!);
+      composerContrast = (Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05);
     }
     return {
       backgroundImage: style.backgroundImage,
@@ -287,7 +308,7 @@ export async function expectMobileComposer(composer: Locator) {
       ),
     ].find((button) => button.getClientRects().length > 0);
     if (!textarea || !action) {
-      throw new Error("Expected the translucent composer to retain its input and primary action");
+      throw new Error("Expected the composer to retain its input and primary action");
     }
     const controls = [textarea, action].map((control) => {
       const bounds = control.getBoundingClientRect();

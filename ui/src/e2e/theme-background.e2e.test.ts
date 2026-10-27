@@ -101,9 +101,9 @@ suite.define(() => {
           route === "settings/appearance" ? null : page.locator(".agent-chat__input");
         const textarea = composer?.locator("textarea");
         const draft = `An unsent ${route} draft stays here while the theme changes.`;
-        const expectDraft = async (accessible = false) => {
+        const expectDraft = async () => {
           if (composer && textarea) {
-            await expectComposerSurface(composer, accessible);
+            await expectComposerSurface(composer);
             expect(await textarea.inputValue()).toBe(draft);
           }
         };
@@ -170,7 +170,7 @@ suite.define(() => {
         ] as const) {
           await page.emulateMedia(media);
           await expect.poll(background).toBe("none");
-          await expectDraft(true);
+          await expectDraft();
         }
         await page.emulateMedia({ contrast: "no-preference", forcedColors: "none" });
         await expect.poll(background).toBe(images.get("dash-light"));
@@ -189,7 +189,7 @@ suite.define(() => {
                 () => matchMedia("(prefers-reduced-transparency: reduce)").matches,
               ),
             ).toBe(true);
-            await expectDraft(true);
+            await expectDraft();
             expect(await background()).toBe(images.get("dash-light"));
           } finally {
             await session.send("Emulation.setEmulatedMedia", { features: [] });
