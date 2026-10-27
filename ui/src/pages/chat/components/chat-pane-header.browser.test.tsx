@@ -362,6 +362,12 @@ describe.skipIf(typeof HTMLElement.prototype.checkVisibility !== "function")(
         expect(trigger.getAttribute("aria-label")).toBe(t("chat.sessionHeader.panels"));
         expect(trigger.textContent?.trim()).toBe("");
         const surface = findElement(menu, ":scope > .oc-menu");
+        // The surface opens before the lazy action list finishes loading.
+        await expect
+          .element(
+            page.elementLocator(menu).getByRole("menuitem", { name: "Terminal", exact: true }),
+          )
+          .toBeVisible();
         // Measure the settled surface, not its opening scale transition.
         await Promise.all(surface.getAnimations().map((animation) => animation.finished));
         const bounds = surface.getBoundingClientRect();

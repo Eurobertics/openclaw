@@ -5,6 +5,8 @@ import { controlUiBootEntryRoute, controlUiBootManifestKey } from "./control-ui-
 // These common interactions download beside the route, but evaluate only on use.
 // Include the nested option entries too: opening a menu must not start a second RTT.
 const sharedInteractionEntries = new Set([
+  "ui/src/pages/chat/components/chat-composer-mention-menu-engine.ts",
+  "ui/src/pages/chat/components/chat-composer-emoji-engine.ts",
   "ui/src/pages/chat/components/chat-composer-slash-menu.tsx",
   "ui/src/pages/chat/components/chat-composer-slash-menu-options.tsx",
   "ui/src/pages/chat/components/chat-composer-skill-menu.tsx",
@@ -16,6 +18,7 @@ const sharedInteractionEntries = new Set([
   "ui/src/components/app-sidebar-online.tsx",
 ]);
 const chatInteractionEntries = new Set([
+  "ui/src/pages/chat/chat-composer-capability-host.tsx",
   // Run rows share the route download; only their first rendered row evaluates them.
   "ui/src/pages/chat/components/chat-agent-run-frame.tsx",
   "ui/src/pages/chat/components/chat-message-stream-view.tsx",
@@ -31,6 +34,13 @@ const chatInteractionEntries = new Set([
   "ui/src/pages/chat/chat-command-dispatch.runtime.ts",
   "ui/src/pages/chat/chat-pane-session-operations.runtime.ts",
   // Image viewers and provider-review dialogs load only when their own UI is needed.
+]);
+
+// Visible Details rows keep a parallel fetch without parsing their bodies for an empty panel.
+const chatPresentationEntries = new Set([
+  "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx",
+  "ui/src/pages/chat/components/chat-details-process-row.tsx",
+  "ui/src/pages/chat/components/chat-details-subagent-rows.tsx",
 ]);
 
 export function collectControlUiStaticAssets(
@@ -68,6 +78,7 @@ export function collectControlUiBootAssets(
   }
   const routes = { chat: new Set(initial), new: new Set(initial) };
   const interactions = { chat: new Set<string>(), new: new Set<string>() };
+  const presentations = { chat: new Set<string>(), new: new Set<string>() };
   const login = new Set(initial);
   // Browser admission signs before the shell can become interactive. Download
   // the signer first without evaluating it or requesting its dynamic fallback.
@@ -98,6 +109,13 @@ export function collectControlUiBootAssets(
   for (const chunk of chunks) {
     // Optimized dynamic imports can live inside a shared chunk without a facade.
     const entries = chunk.facadeModuleId ? [chunk.facadeModuleId] : Object.keys(chunk.modules);
+    if (
+      [chunk.facadeModuleId, ...Object.keys(chunk.modules)].some(
+        (id) => id && chatPresentationEntries.has(controlUiBootManifestKey(id)),
+      )
+    ) {
+      collectControlUiStaticAssets(bundle, chunk.fileName, presentations.chat);
+    }
     // Forgetting local sign-in or rejecting cached admission must show the real
     // gate offline, not fail while downloading its optional component.
     if (
@@ -137,7 +155,12 @@ export function collectControlUiBootAssets(
   // Grouping can emit dynamic re-export facades that the ungrouped capture did
   // not need. They introduce no code beyond the measured graph, but a warm
   // import still requests their URL (for example, a sidebar controller).
-  for (const assets of [...Object.values(routes), ...Object.values(interactions), login]) {
+  for (const assets of [
+    ...Object.values(routes),
+    ...Object.values(presentations),
+    ...Object.values(interactions),
+    login,
+  ]) {
     let added;
     do {
       added = false;
@@ -156,7 +179,14 @@ export function collectControlUiBootAssets(
     } while (added);
   }
   const interactionOnly = { chat: new Set<string>(), new: new Set<string>() };
+  const presentationOnly = { chat: new Set<string>(), new: new Set<string>() };
   for (const route of ["chat", "new"] as const) {
+    for (const file of presentations[route]) {
+      if (!routes[route].has(file)) {
+        presentationOnly[route].add(file);
+        routes[route].add(file);
+      }
+    }
     for (const file of interactions[route]) {
       if (!routes[route].has(file)) {
         interactionOnly[route].add(file);
@@ -164,7 +194,7 @@ export function collectControlUiBootAssets(
       }
     }
   }
-  return { initial, ...routes, login, interactionOnly };
+  return { initial, ...routes, login, presentationOnly, interactionOnly };
 }
 
 export function controlUiBootPreloadsPlugin(): Plugin {
@@ -207,11 +237,12 @@ export function controlUiBootPreloadsPlugin(): Plugin {
                     href: `./${file}`,
                   }
                 : {
-                    rel: "modulepreload",
+                    ...(assets.presentationOnly[route].has(file)
+                      ? { rel: "preload", as: "script" }
+                      : assets.interactionOnly[route].has(file)
+                        ? { rel: "preload", as: "script", fetchpriority: "low" }
+                        : { rel: "modulepreload" }),
                     crossorigin: "",
-                    // Every route dependency can gate its first frame. Only
-                    // interaction-only hints yield to post-connect requests.
-                    ...(assets.interactionOnly[route].has(file) ? { fetchpriority: "low" } : {}),
                     href: `./${file}`,
                   },
             }));

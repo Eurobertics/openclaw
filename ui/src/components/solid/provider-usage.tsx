@@ -2,6 +2,7 @@
 
 // Shared provider usage content: plan windows, balances and provider-billed cost.
 // Surrounding headers (name, plan, icon) stay surface-owned.
+import { registerProviderUsageEnglish } from "../../i18n/locales/en-provider-usage.ts";
 import { createMemo, For, Repeat, Show } from "solid-js";
 import type {
   ProviderUsageSnapshot,
@@ -10,10 +11,13 @@ import type {
 import { formatUiExternalText } from "../../lib/format-error.ts";
 import { formatCompactTokenCount } from "../../lib/format.ts";
 import { formatRelativeTimestamp } from "../../lib/reactive/format.ts";
-import { t } from "../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
 import "../../styles/carapace-control-ui.css";
 import "../../styles/provider-usage.css";
 import { Icon } from "./icon.tsx";
+
+
+registerEnglishCatalog(registerProviderUsageEnglish);
 
 export type ProviderUsageDetails = Pick<
   ProviderUsageSnapshot,

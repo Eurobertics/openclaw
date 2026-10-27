@@ -101,11 +101,17 @@ it("loads optional English copy at each view boundary while keeping shared label
   const { en, manager } = await loadI18n();
   const about = en.aboutPage;
   const dashboards = en.dashboardsPage;
+  const providerUsage = en.usage.providerUsage;
   expect(manager.t("aboutPage.artifactDetails")).toBe("Control UI build details");
   await manager.setLocale("de");
   for (const [key, copy, load] of [
     ["aboutPage.linkDocs", "Docs", () => import("../pages/about/view.tsx")],
     ["dashboardsPage.live", "Live", () => import("../pages/dashboards/view.tsx")],
+    [
+      "usage.providerUsage.balance",
+      "Balance",
+      () => import("../components/solid/provider-usage.tsx"),
+    ],
   ] as const) {
     expect(manager.t(key)).toBe(key);
     await load();
@@ -113,5 +119,46 @@ it("loads optional English copy at each view boundary while keeping shared label
     expect(manager.t("common.health")).toBe("Gesundheit");
     expect(en.aboutPage).toBe(about);
     expect(en.dashboardsPage).toBe(dashboards);
+    expect(en.usage.providerUsage).toBe(providerUsage);
   }
+});
+
+it("loads optional chat copy with its view while keeping admission errors synchronous", async () => {
+  const { en, manager } = await loadI18n({
+    chat: { composer: { menu: { back: "Zurück" } } },
+  });
+  const permissions = en.chat.permissions;
+  const workspaceFiles = en.chat.workspaceFiles;
+  const { registerEnglishCatalog } = await import("../lib/reactive/i18n.ts");
+  const { registerChatComposerEnglish } = await import("./locales/en-chat-composer.ts");
+  const { registerChatSessionEnglish } = await import("./locales/en-chat-session.ts");
+  registerEnglishCatalog(registerChatComposerEnglish);
+  registerEnglishCatalog(registerChatSessionEnglish);
+  await manager.setLocale("de");
+  expect(manager.t("chat.composer.menu.offlineBlocked")).toBe(
+    "Connect to the gateway to change session capabilities.",
+  );
+  expect(manager.t("chat.workspaceFiles.showFiles")).toBe("Show session files");
+  expect(manager.t("chat.workspaceFiles.search")).toBe("chat.workspaceFiles.search");
+  expect(manager.t("chat.permissions.tryAgain")).toBe("chat.permissions.tryAgain");
+  expect(manager.t("chat.composer.menu.addMcpServer")).toBe("chat.composer.menu.addMcpServer");
+
+  await import("../pages/chat/components/chat-session-workspace-breadcrumb.tsx");
+  expect(manager.t("chat.workspaceFiles.search")).toBe("Search files");
+  await import("../pages/chat/components/chat-permission-card.tsx");
+  expect(manager.t("chat.permissions.tryAgain")).toBe("Try again");
+  await import("../pages/chat/components/chat-composer-plus-menu-content.tsx");
+  expect(manager.t("chat.composer.menu.addMcpServer")).toBe("Add MCP server");
+  registerChatSessionEnglish();
+  registerChatComposerEnglish();
+  expect(manager.t("chat.workspaceFiles.search")).toBe("Search files");
+  expect(manager.t("chat.activityPills.publication.confirm")).toBe("Confirm publication");
+  expect(manager.t("chat.composer.menu.addMcpServer")).toBe("Add MCP server");
+  expect(manager.t("chat.composer.menu.toolAccess.noTools")).toBe(
+    "No tools available for this MCP server.",
+  );
+  expect(manager.t("chat.composer.menu.back")).toBe("Zurück");
+  expect(manager.getLocale()).toBe("de");
+  expect(en.chat.permissions).toBe(permissions);
+  expect(en.chat.workspaceFiles).toBe(workspaceFiles);
 });

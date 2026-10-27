@@ -31,6 +31,7 @@ import { ChatPaneRuntime } from "./chat-pane-render.ts";
 import { consumePaneSessionHandoff } from "./chat-pane-shared.ts";
 import { subscribeChatPaneSnapshotInvalidation } from "./chat-pane-startup-subscriptions.ts";
 import {
+  runPaneHeaderAction,
   createTestChatPane,
   createPaneTestHost,
   getPaneTestRuntime,
@@ -74,10 +75,7 @@ describe("chat pane retained presentation", () => {
   it.each(["hidden", "frame", "no-frame"] as const)(
     "keeps session publications current during %s presentation",
     async (presentation) => {
-      const { pane, state } = createTestChatPane({
-        client: createGatewayBrowserClientFixture(),
-        sessions: createSessionCapabilityFixture(),
-      });
+      const { pane, state } = createTestChatPane({ sessions: createSessionCapabilityFixture() });
       pane.presented = presentation !== "hidden";
       if (presentation === "no-frame") {
         vi.stubGlobal("requestAnimationFrame", undefined);
@@ -124,10 +122,7 @@ describe("chat pane retained presentation", () => {
   );
 
   it("does not redraw a retained transcript when its navigation callback is replaced", async () => {
-    const { pane } = createTestChatPane({
-      client: createGatewayBrowserClientFixture(),
-      sessions: createSessionCapabilityFixture(),
-    });
+    const { pane } = createTestChatPane({ sessions: createSessionCapabilityFixture() });
     const lifecycle = pane;
     lifecycle.render = () => ({
       layout: null,
@@ -170,7 +165,7 @@ describe("chat pane header state", () => {
         label: "Current session",
       } satisfies GatewaySessionRow;
 
-      const pending = pane.handleHeaderSessionAction({ kind: "delete" }, session);
+      const pending = runPaneHeaderAction(pane, { kind: "delete" }, session);
       await waitForConfirmDialogActions();
       // Mirrors a reconnect landing while the header's own confirm dialog is
       // open: the chat header builds this scope independently of
@@ -225,12 +220,9 @@ describe("chat pane header state", () => {
         patch,
         state: { error: null, groups: [], result },
       });
-      const { pane } = createTestChatPane({
-        client: createGatewayBrowserClientFixture(),
-        sessions,
-      });
+      const { pane } = createTestChatPane({ sessions });
 
-      const pending = pane.handleHeaderSessionAction({ kind: "new-group" }, session);
+      const pending = runPaneHeaderAction(pane, { kind: "new-group" }, session);
       await waitForInputDialog();
       await submitInputDialog("Projects");
       await vi.waitFor(() => expect(groupsPut).toHaveBeenCalledOnce());
@@ -272,23 +264,17 @@ describe("chat pane header state", () => {
       patch,
       state: { error: null, groups: ["Projects"], result },
     });
-    const { pane } = createTestChatPane({
-      client: createGatewayBrowserClientFixture(),
-      sessions,
-    });
+    const { pane } = createTestChatPane({ sessions });
 
     result.sessions = [];
-    await pane.handleHeaderSessionAction({ kind: "move-to-group", category: "Projects" }, session);
+    await runPaneHeaderAction(pane, { kind: "move-to-group", category: "Projects" }, session);
 
     expect(patch).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith({ message: t("common.refresh") });
   });
 
   it("copies the resolved workspace path and branch", async () => {
-    const { pane } = createTestChatPane({
-      client: createGatewayBrowserClientFixture(),
-      sessions: createSessionCapabilityFixture(),
-    });
+    const { pane } = createTestChatPane({ sessions: createSessionCapabilityFixture() });
     const copy = vi.spyOn(clipboard, "copyToClipboard").mockResolvedValue(true);
     onTestFinished(() => copy.mockRestore());
     pane.handleHeaderMenuAction("copy-path", workspaceSession, "/src/openclaw", "feature/header");
@@ -299,10 +285,7 @@ describe("chat pane header state", () => {
   });
 
   it("surfaces a rejected workspace clipboard action", async () => {
-    const { pane, state } = createTestChatPane({
-      client: createGatewayBrowserClientFixture(),
-      sessions: createSessionCapabilityFixture(),
-    });
+    const { pane, state } = createTestChatPane({ sessions: createSessionCapabilityFixture() });
     const errors = observeErrors(state);
     expect(errors()).toEqual({ lastError: null, chatError: null });
     const copy = vi.spyOn(clipboard, "copyToClipboard").mockResolvedValue(false);
@@ -831,10 +814,7 @@ describe("chat pane keyboard shortcuts", () => {
   });
 
   it("toggles the terminal tab in the active pane", () => {
-    const { pane, state } = createTestChatPane({
-      client: createGatewayBrowserClientFixture(),
-      sessions: createSessionCapabilityFixture(),
-    });
+    const { pane, state } = createTestChatPane({ sessions: createSessionCapabilityFixture() });
     pane.active = true;
     state.terminalAvailable = true;
     const press = () => {

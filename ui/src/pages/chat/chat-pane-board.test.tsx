@@ -31,7 +31,8 @@ import {
 } from "./chat-pane-runtime.test-support.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import { ChatPaneStateOwner } from "./chat-pane-state-owner.ts";
-import { type ChatBoardPanel, ChatBoardResetConfirmation } from "./chat-pane-surfaces.tsx";
+import { ChatBoardResetConfirmation } from "./chat-board-reset-confirmation.tsx";
+import type { ChatBoardPanelSource } from "./chat-pane-panel-source.ts";
 import { mountBoardPanel } from "./chat-pane.test-support.ts";
 import { createInitialChatRealtimeState } from "./chat-realtime.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -102,10 +103,10 @@ type TestChatPane = HTMLElement & {
   showDashboard: (expanded: boolean) => void;
   resolveBoardProvider: () => BoardProvider;
   resolveBoardView: () => ResolvedBoardView;
-  renderBoardPanel: (
+  boardPanelSource: (
     board: ResolvedBoardView,
     layout: ChatPageHost["sidebarLayout"],
-  ) => Parameters<typeof ChatBoardPanel>[0] | null;
+  ) => ChatBoardPanelSource | null;
   renderResetConfirmation: () => Parameters<typeof ChatBoardResetConfirmation>[0] | null;
   syncRetainedBoardSession: (board: ResolvedBoardView) => void;
   refreshSwarmRoster: () => void;

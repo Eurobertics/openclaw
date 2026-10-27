@@ -2,7 +2,7 @@
 import { createSignal } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
-import { flush } from "../../../test-helpers/solid-settle.ts";
+import { flush, waitForSolid } from "../../../test-helpers/solid-settle.ts";
 import { ChatDetailsSubagents, type ChatDetailsSubagentsProps } from "./chat-details-subagents.tsx";
 
 type Row = ChatDetailsSubagentsProps["rows"][number];
@@ -30,13 +30,14 @@ it.each([
   { mobile: true, limit: 3 },
 ])(
   "uses the total at the $limit-item boundary (mobile=$mobile), preserving child and collection intent",
-  ({ mobile, limit }) => {
+  async ({ mobile, limit }) => {
     const initial: Row[] = Array.from({ length: limit }, (_, index) => ({
       key: `child-${index}`,
       label: "Review",
       status: index === 1 ? "running" : "done",
     }));
     const { view, setRows, openChild, openCollection } = mountSubagents(initial, mobile);
+    await waitForSolid(() => expect(view.getAllByRole("button")).toHaveLength(limit));
     const buttons = view.getAllByRole("button");
     expect(buttons).toHaveLength(limit);
     buttons[0]!.click();
@@ -61,7 +62,7 @@ it.each([
   },
 );
 
-it("omits empty content and removes collapsed activity when the last waiting child settles", () => {
+it("omits empty content and removes collapsed activity when the last waiting child settles", async () => {
   const { view, setRows, setCollapsed } = mountSubagents([]);
   expect(view.container.childElementCount).toBe(0);
   setCollapsed(true);
@@ -75,10 +76,12 @@ it("omits empty content and removes collapsed activity when the last waiting chi
   expect(view.container.childElementCount).toBe(0);
   setCollapsed(false);
   flush();
-  expect(view.getByRole("button", { name: "Waiting child Done" })).toBeTruthy();
+  await waitForSolid(() =>
+    expect(view.getByRole("button", { name: "Waiting child Done" })).toBeTruthy(),
+  );
 });
 
-it("folds failed runs into Done without changing child outcomes", () => {
+it("folds failed runs into Done without changing child outcomes", async () => {
   const initial: Row[] = [
     { key: "a", label: "A", status: "running" },
     { key: "b", label: "B", status: "waiting" },
@@ -88,11 +91,13 @@ it("folds failed runs into Done without changing child outcomes", () => {
     { key: "f", label: "F", status: "stopped" },
   ];
   const { view, setRows, openChild } = mountSubagents(initial);
-  expect(
-    view.getByRole("button", {
-      name: "All subagents. 1 Working, 1 Waiting on subagents, 1 Queued, 2 Done, 1 Stopped",
-    }),
-  ).toBeTruthy();
+  await waitForSolid(() =>
+    expect(
+      view.getByRole("button", {
+        name: "All subagents. 1 Working, 1 Waiting on subagents, 1 Queued, 2 Done, 1 Stopped",
+      }),
+    ).toBeTruthy(),
+  );
   setRows([initial[4]!]);
   flush();
   view.getByRole("button", { name: "E Failed" }).click();

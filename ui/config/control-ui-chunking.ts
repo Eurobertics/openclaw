@@ -77,6 +77,28 @@ export function controlUiStableChunkName(id: string): string | undefined {
   const normalized = normalizeModuleId(id);
 
   switch (controlUiBootManifestKey(id)) {
+    case "ui/src/components/modal-dialog.tsx":
+    case "ui/src/components/solid/modal-dialog.tsx":
+    case "ui/src/components/solid/modal-dialog.css":
+    case "ui/src/components/solid/modal-scroll-lock.css":
+      // Dialogs share the existing creation controls without loading the New Session route.
+      return "route-controls-runtime";
+    case "ui/src/pages/chat/chat-view-notices-content.tsx":
+    case "ui/src/pages/chat/chatgpt-usage-limit.tsx":
+      return "chat-notices-runtime";
+    case "ui/src/pages/chat/components/chat-comment-pins.tsx":
+    case "ui/src/pages/chat/components/chat-selection-annotation-rows.tsx":
+      return "chat-saved-annotations-runtime";
+    case "ui/src/pages/chat/components/chat-transcript-search-content.tsx":
+      return "chat-search-runtime";
+    case "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx":
+    case "ui/src/pages/chat/components/chat-details-process-row.tsx":
+    case "ui/src/pages/chat/components/chat-details-subagent-rows.tsx":
+    case "ui/src/pages/chat/chat-composer-capability-host.tsx":
+    case "ui/src/pages/chat/composer-library-session.ts":
+    case "ui/src/i18n/locales/en-chat-permissions.ts":
+      // First visible Details rows and opened composer controls share one fetched runtime.
+      return "chat-interaction-runtime";
     case "ui/src/pages/chat/components/chat-ci-automation-control.tsx":
     case "ui/src/pages/chat/components/chat-ci-automation.tsx":
     case "ui/src/pages/chat/components/chat-ci-details.tsx":
@@ -278,6 +300,9 @@ export function controlUiStableChunkName(id: string): string | undefined {
     case "ui/src/styles/emoji-search-panel.css":
       return "emoji-search-panel";
     case "ui/src/pages/chat/components/chat-composer-emoji-options.tsx":
+    case "ui/src/pages/chat/components/chat-composer-emoji-engine.ts":
+    case "ui/src/pages/chat/components/chat-composer-mention-menu-engine.ts":
+    case "ui/src/components/textarea-token-anchor.ts":
     case "ui/src/pages/chat/components/chat-composer-emoji.tsx":
     case "ui/src/pages/chat/components/chat-composer-mention-menu-options.tsx":
     case "ui/src/pages/chat/components/chat-composer-mention-menu.tsx":
@@ -482,6 +507,12 @@ export function createControlUiCodeSplitting(options: { includeBootGroups?: bool
                 modules.add("ui/src/lib/platform-label.ts");
                 // Placement and delivery share retries without importing either route's bundle.
                 modules.add("ui/src/pages/chat/chat-outbox-retry.ts");
+                // Creation still uses the catalog; Chat constructs its capability owner on demand.
+                modules.add("ui/src/pages/chat/composer-capability-catalog.ts");
+                modules.add("ui/src/lib/config/mcp-servers.ts");
+                modules.add("src/config/patch-replace-paths.ts");
+                modules.add("src/infra/plain-object.ts");
+                modules.add("src/infra/prototype-keys.ts");
               }
               return {
                 name: `control-ui-boot-${route}`,

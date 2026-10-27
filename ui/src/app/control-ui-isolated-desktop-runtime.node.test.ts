@@ -146,6 +146,9 @@ it.each([false, true])(
       expect(hints.find((hint) => hint.includes(interactionChunk!.fileName))).toContain(
         'fetchpriority="low"',
       );
+      expect(hints.find((hint) => hint.includes(interactionChunk!.fileName))).toContain(
+        'rel="preload" as="script"',
+      );
       if (route === "chat") {
         const chatHint = hints.find((hint) => hint.includes(chatChunk!.fileName));
         expect(chatHint).toBeDefined();
@@ -214,6 +217,7 @@ it("prioritizes signing and route dependencies over unevaluated interaction hint
     creator: modulePath("../pages/claws/creator-review-view.tsx"),
     signer: modulePath("../lib/nodes/device-signing.runtime.ts"),
     chat: modulePath("../pages/chat/route-entry.ts"),
+    process: modulePath("../pages/chat/components/chat-details-desktop-process-row.tsx"),
   };
   const aliases: Record<string, string> = {
     "fixture:common": commonDependency,
@@ -273,7 +277,9 @@ it("prioritizes signing and route dependencies over unevaluated interaction hint
   );
   const chatPreloads = routePreloads(html, "chat");
   expect(chatPreloads.toSorted()).toEqual(
-    [...new Set([signerChunk, chatChunk, ...commonChunks])].toSorted(),
+    [
+      ...new Set([signerChunk, chatChunk, chunkFor(entries.process).fileName, ...commonChunks]),
+    ].toSorted(),
   );
   expect(routePreloads(html, "new").toSorted()).toEqual(
     [...new Set([signerChunk, ...commonChunks, ...placementChunks])].toSorted(),
@@ -285,6 +291,11 @@ it("prioritizes signing and route dependencies over unevaluated interaction hint
   const links = [...html.matchAll(/<link[^>]+>/gu)].map((match) => match[0]);
   const linkFor = (file: string) => links.find((link) => link.includes(`href="./${file}"`));
   expect(linkFor(chunkFor(entries.online).fileName)).toContain('fetchpriority="low"');
+  expect(linkFor(chunkFor(entries.online).fileName)).toContain('rel="preload" as="script"');
+  expect(linkFor(chunkFor(entries.online).fileName)).toContain('crossorigin');
+  expect(linkFor(chunkFor(entries.process).fileName)).toContain('rel="preload" as="script"');
+  expect(linkFor(chunkFor(entries.process).fileName)).not.toContain("fetchpriority");
+  expect(linkFor(chatChunk)).toContain('rel="modulepreload"');
   expect(linkFor(chunkFor(commonDependency).fileName)).not.toContain("fetchpriority");
   expect(linkFor(signerChunk)).not.toContain("fetchpriority");
   expect(html).not.toContain(chunkFor(signingFallback).fileName);

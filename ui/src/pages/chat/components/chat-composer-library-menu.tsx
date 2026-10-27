@@ -1,8 +1,9 @@
 import { Icon } from "../../../components/solid/icon.tsx";
 import type { MenuItem } from "../../../components/solid/menu.tsx";
-import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
+import { registerChatComposerMenuEnglish } from "../../../i18n/locales/en-chat-composer-menu.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import type { ComposerLibraryProps } from "../composer-library-session.ts";
+import type { ChatComposerPlusMenuView } from "./chat-composer-plus-menu.types.ts";
 import {
   menuChevron,
   menuDivider,
@@ -10,9 +11,8 @@ import {
   renderCapabilityMenuState,
   skillIcon,
 } from "./chat-composer-menu-rows.tsx";
-import type { ChatComposerPlusMenuView } from "./chat-composer-plus-menu.types.ts";
 
-registerEnglishCatalog(registerChatComposerEnglish);
+registerEnglishCatalog(registerChatComposerMenuEnglish);
 
 type LibraryMenuEntry = MenuItem | ReturnType<typeof renderCapabilityMenuState>;
 
