@@ -102,8 +102,6 @@ export type TestChatPane = HTMLElement &
     continueCatalogSession: ChatPaneRuntime["continueCatalogSession"];
     forkFromMessage: (entryId: string) => Promise<void>;
     createSession: () => Promise<boolean>;
-    recoverSession: () => Promise<boolean>;
-    restartRecoveryComposerBanner: ChatPaneRuntime["restartRecoveryComposerBanner"];
     restoreArchivedSession: (sessionKey: string, expectedSessionId: string) => Promise<void>;
     discardStagedAttachments?: () => void;
     resumeStagedAttachments?: () => void;
