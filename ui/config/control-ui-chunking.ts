@@ -214,6 +214,10 @@ export function controlUiStableChunkName(id: string): string | undefined {
     case "ui/src/pages/chat/chat-command-dispatch.runtime.ts":
     case "ui/src/pages/chat/chat-pane-session-operations.ts":
     case "ui/src/pages/chat/chat-pane-session-operations.runtime.ts":
+    case "ui/src/pages/chat/components/chat-agent-run-frame.tsx":
+    case "ui/src/pages/chat/components/chat-message-stream-view.tsx":
+    case "ui/src/lib/chat/source-previews.ts":
+      // Preloaded run rows evaluate on first use without separate chunk requests.
       return "chat-interaction-runtime";
     case "ui/src/pages/chat/components/chat-context-breakdown.tsx":
     case "ui/src/pages/chat/components/chat-context-breakdown-model.ts":

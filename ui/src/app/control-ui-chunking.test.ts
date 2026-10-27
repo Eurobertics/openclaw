@@ -102,6 +102,9 @@ describe("Control UI build chunking", () => {
   it("keeps routes and optional code lazy with one shared stylesheet", async () => {
     const chat = modulePath("../pages/chat/chat-pane.tsx");
     const newSession = modulePath("../pages/new-session/new-session-page.tsx");
+    const runFrame = modulePath("../pages/chat/components/chat-agent-run-frame.tsx");
+    const runStream = modulePath("../pages/chat/components/chat-message-stream-view.tsx");
+    const sourcePreviews = modulePath("../lib/chat/source-previews.ts");
     const optional = modulePath("../components/assistant-panel-content-solid.tsx");
     const devices = modulePath("../pages/devices/devices-page.tsx");
     const cron = modulePath("../pages/cron/cron-page.tsx");
@@ -143,12 +146,18 @@ describe("Control UI build chunking", () => {
       ],
       [
         chat,
-        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)});`,
+        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)}); export const renderRun = () => import(${JSON.stringify(runFrame)});`,
       ],
       [
         newSession,
         `import ${JSON.stringify(sidebarStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; export class NewSession { label = label; }`,
       ],
+      [
+        runFrame,
+        `export { stream } from ${JSON.stringify(runStream)}; export { preview } from ${JSON.stringify(sourcePreviews)};`,
+      ],
+      [runStream, 'export const stream = "stream";'],
+      [sourcePreviews, 'export const preview = "preview";'],
       [
         optional,
         `import ${JSON.stringify(optionalStyle)}; import { hubTabs } from ${JSON.stringify(hubTabs)}; import { link } from ${JSON.stringify(settingsUi)}; import { subtitle } from ${JSON.stringify(routeSubtitles)}; export const panel = hubTabs() + link + subtitle;`,
@@ -290,6 +299,11 @@ describe("Control UI build chunking", () => {
     };
     expect(staticImports(chatChunk.fileName)).not.toContain(newSessionChunk.fileName);
     expect(staticImports(newSessionChunk.fileName)).not.toContain(chatChunk.fileName);
+    const runChunk = chunks.find((chunk) => runFrame in chunk.modules)!;
+    expect([runStream, sourcePreviews].every((id) => id in runChunk.modules)).toBe(true);
+    expect(staticImports(chatChunk.fileName)).not.toContain(runChunk.fileName);
+    expect(staticImports(newSessionChunk.fileName)).not.toContain(runChunk.fileName);
+    expect(chatChunk.dynamicImports).toContain(runChunk.fileName);
     const pluginChunk = chunks.find((chunk) => pluginLoader in chunk.modules)!;
     const actionChunk = chunks.find((chunk) => pluginActions in chunk.modules)!;
     const sharedChunk = chunks.find((chunk) => sharedUi in chunk.modules)!;
