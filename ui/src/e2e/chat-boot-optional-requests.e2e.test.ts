@@ -40,6 +40,7 @@ suite.define(() => {
         };
         const gateway = await installMockGateway(page, {
           sessionKey,
+          deviceToken: null,
           deferredMethods: ["connect"],
           historyMessages: [initialMessage],
         });
