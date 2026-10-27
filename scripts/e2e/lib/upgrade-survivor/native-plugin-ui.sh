@@ -2,7 +2,7 @@
 
 native_plugin_ui_upgrade_enabled() {
   [ "$SCENARIO" = "legacy-operator-state" ] &&
-    { [ "$baseline_version" = "2026.10.5" ] || [ "$baseline_version" = "2026.10.7" ]; } &&
+    { [ "$baseline_version" = "2026.10.5" ] || [ "$baseline_version" = "2026.10.7" ] || [ "$baseline_version" = "2026.10.8" ]; } &&
     [ "$UPDATE_RESTART_MODE" = "manual" ] && [ "$CANDIDATE_KIND" = "tarball" ]
 }
 

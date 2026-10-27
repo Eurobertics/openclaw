@@ -118,7 +118,7 @@ function publish(overrides: Record<string, unknown>, baselineVersion = "2026.10.
   return readJson(path.join(output, "summary.json"));
 }
 
-it.each(["2026.10.5", "2026.10.7"])(
+it.each(["2026.10.5", "2026.10.7", "2026.10.8"])(
   "projects %s policy receipts without publishing raw plugin state",
   (baselineVersion) => {
     const result = publish(

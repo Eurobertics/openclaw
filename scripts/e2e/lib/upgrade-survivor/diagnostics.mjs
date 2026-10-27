@@ -1699,7 +1699,7 @@ function publishedPostCore(snapshot, sanitize) {
 function publishedNativePluginUi(snapshot, sanitize) {
   const selected =
     snapshot.scenario === "legacy-operator-state" &&
-    ["2026.10.5", "2026.10.7"].includes(snapshot.baseline?.version) &&
+    ["2026.10.5", "2026.10.7", "2026.10.8"].includes(snapshot.baseline?.version) &&
     snapshot.candidate?.kind === "tarball" &&
     snapshot.updateRestartMode === "manual" &&
     snapshot.phases?.some(
