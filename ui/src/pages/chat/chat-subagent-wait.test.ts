@@ -539,17 +539,6 @@ describe("chat waiting on subagents", () => {
     ).toEqual([during.key]);
   });
 
-  it("re-renders resumed lists when a listed child's name or attention changes", () => {
-    const key = (row: GatewaySessionRow) => status({ subagentSessions: [row] }).rowsKey;
-    const attention = {
-      ...child,
-      agentStatus: { note: "Pick a merge method", attention: "hand" as const, expiresAt: 9e15 },
-    };
-    expect(key(attention)).not.toBe(key(child));
-    expect(key({ ...child, label: "Renamed" })).not.toBe(key(child));
-    expect(key({ ...child })).toBe(key(child));
-  });
-
   it("links child names only to sessions this pane loaded and can open", () => {
     const onOpenSessionLink = vi.fn();
     const dashboard = {

@@ -248,3 +248,103 @@ describe("composer run status", () => {
     expect(container.querySelector(".agent-chat__composer-run-status")).toBeNull();
   });
 });
+
+describe("resumed handoff list", () => {
+  beforeEach(installTranscriptDomMocks);
+  afterEach(() => {
+    resetChatComposerState();
+    resetTranscriptTestDom();
+    vi.restoreAllMocks();
+  });
+
+  it("re-renders a settled row when a listed child's name or attention changes", () => {
+    const now = 10_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const parent: GatewaySessionRow = {
+      key: "agent:main:parent",
+      kind: "direct",
+      status: "done",
+      hasActiveRun: false,
+      hasActiveSubagentRun: false,
+      startedAt: 3_900,
+      endedAt: 4_100,
+    };
+    const child: GatewaySessionRow = {
+      key: "agent:main:subagent:docs",
+      kind: "direct",
+      spawnedBy: parent.key,
+      parentSessionKey: parent.key,
+      label: "Docs site dependencies",
+      status: "done",
+      hasActiveRun: false,
+      startedAt: 2_100,
+      endedAt: 3_000,
+    };
+    const acknowledgment = "Started the docs dependency session.";
+    const messages = [
+      { role: "user", content: "Update the docs dependencies.", timestamp: 1_000 },
+      {
+        role: "assistant",
+        runId: "parent-run",
+        timestamp: 1_900,
+        content: [
+          { type: "toolCall", id: "yield", name: "sessions_yield", arguments: { acknowledgment } },
+        ],
+      },
+      {
+        role: "toolResult",
+        runId: "parent-run",
+        toolCallId: "yield",
+        toolName: "sessions_yield",
+        timestamp: 2_000,
+        content: [{ type: "text", text: JSON.stringify({ status: "yielded", acknowledgment }) }],
+      },
+      {
+        role: "assistant",
+        runId: "resumed-run",
+        stopReason: "stop",
+        timestamp: 4_000,
+        content: "The docs update is ready to merge.",
+      },
+    ];
+    const { pane, state, context } = createRefreshChatPane();
+    state.sessionKey = parent.key;
+    state.sessionsResult = sessionsResult([parent]);
+    pane.render();
+    const container = createApplicationContextProvider(context);
+    // Each draw passes the same transcript, so only the roster can refresh the row.
+    const draw = (row: GatewaySessionRow) => {
+      renderChatPropsInto(
+        container,
+        {
+          ...expectDefined(pane.chatProps, "chat props"),
+          selectedSession: parent,
+          messages,
+          subagentSessions: [row],
+          subagentSessionsHydrated: true,
+        },
+        context,
+      );
+      flush();
+      const toggle = container.querySelector<HTMLButtonElement>(
+        ".chat-handoff-resume button[aria-expanded]",
+      );
+      if (toggle?.getAttribute("aria-expanded") === "false") {
+        toggle.click();
+        flush();
+      }
+      return [...container.querySelectorAll(".chat-handoff-resume li")].map((item) =>
+        item.textContent?.replace(/\s+/gu, " ").trim(),
+      );
+    };
+    expect(draw(child)).toEqual(["Docs site dependencies Done"]);
+    const renamed = { ...child, label: "Docs and changelog" };
+    expect(draw(renamed)).toEqual(["Docs and changelog Done"]);
+    expect(
+      draw({
+        ...renamed,
+        agentStatus: { note: "Pick a release note", attention: "hand", expiresAt: now + 60_000 },
+      }),
+    ).toEqual(["Docs and changelog Needs your input"]);
+  });
+});
