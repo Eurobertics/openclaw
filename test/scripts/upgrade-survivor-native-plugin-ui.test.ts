@@ -61,7 +61,7 @@ it("keeps omission distinct from the old explicit false and checks retained sett
   expect(() => assertNativeUiPolicy(config, "omitted")).toThrow("changed native plugin settings");
 });
 
-function proof(policy: string, eligible: boolean) {
+function proof(policy: string, eligible: boolean, baselineVersion = "2026.10.5") {
   return {
     status: "passed",
     stage: "candidate",
@@ -90,20 +90,20 @@ function proof(policy: string, eligible: boolean) {
       status: "passed",
       stage: "baseline",
       policy,
-      servingVersion: "2026.10.5",
+      servingVersion: baselineVersion,
       eligible: false,
       pluginSettingsPreserved: true,
       operatorDataPreserved: true,
     },
   };
 }
-function publish(overrides: Record<string, unknown>) {
+function publish(overrides: Record<string, unknown>, baselineVersion = "2026.10.5") {
   const root = dirs.make("native-ui-upgrade-publication-");
   const output = path.join(root, "public");
   writeJson(
     path.join(root, "summary.json"),
-    successSummary("2026.10.5", "2026.10.20", {
-      backupRollback: backupRollbackProof("2026.10.5", "2026.10.20"),
+    successSummary(baselineVersion, "2026.10.20", {
+      backupRollback: backupRollbackProof(baselineVersion, "2026.10.20"),
       phases: [
         {
           phase: "prepare-native-plugin-ui-upgrade",
@@ -118,26 +118,32 @@ function publish(overrides: Record<string, unknown>) {
   return readJson(path.join(output, "summary.json"));
 }
 
-it("projects synthetic policy receipts without publishing raw plugin state", () => {
-  const result = publish({
-    nativePluginUi: proof("omitted", true),
-    nativePluginUiOptOut: proof("false", false),
-  });
-  expect(result.nativePluginUi).toEqual({
-    status: "passed",
-    baselineVersion: "2026.10.5",
-    candidateVersion: "2026.10.20",
-    fixtureArchiveSha256: "b".repeat(64),
-    omittedBecameEligible: true,
-    explicitFalsePreserved: true,
-    authenticatedAssetsServed: true,
-    unauthenticatedAssetsDenied: true,
-    optedOutAssetsDenied: true,
-    pluginSettingsPreserved: true,
-    operatorDataPreserved: true,
-  });
-  expect(JSON.stringify(result)).not.toContain("private-native-ui-fixture");
-});
+it.each(["2026.10.5", "2026.10.7"])(
+  "projects %s policy receipts without publishing raw plugin state",
+  (baselineVersion) => {
+    const result = publish(
+      {
+        nativePluginUi: proof("omitted", true, baselineVersion),
+        nativePluginUiOptOut: proof("false", false, baselineVersion),
+      },
+      baselineVersion,
+    );
+    expect(result.nativePluginUi).toEqual({
+      status: "passed",
+      baselineVersion,
+      candidateVersion: "2026.10.20",
+      fixtureArchiveSha256: "b".repeat(64),
+      omittedBecameEligible: true,
+      explicitFalsePreserved: true,
+      authenticatedAssetsServed: true,
+      unauthenticatedAssetsDenied: true,
+      optedOutAssetsDenied: true,
+      pluginSettingsPreserved: true,
+      operatorDataPreserved: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("private-native-ui-fixture");
+  },
+);
 
 it("cannot publish a generic green or an unqualified opt-out as feature upgrade proof", () => {
   expect(() => publish({})).toThrow("native plugin UI upgrade evidence");

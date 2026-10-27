@@ -375,6 +375,8 @@ it.skipIf(process.platform === "win32").each([
   { baselineVersion: "2026.9.2", fail: false },
   { baselineVersion: "2026.10.5", fail: false },
   { baselineVersion: "2026.10.5", fail: true },
+  { baselineVersion: "2026.10.7", fail: false },
+  { baselineVersion: "2026.10.7", fail: true },
 ])("orders $baselineVersion rollback, propagates failure=$fail", ({ baselineVersion, fail }) => {
   const root = tempDirs.make("survivor-rollback-order-");
   const prelude = join(root, "bash-env");
@@ -436,7 +438,7 @@ trap 'case "$BASH_COMMAND" in "phase "*) install_fixture_phases ;; esac' DEBUG
   if (fail) {
     expect(phases.at(-1)).toBe("verify-backup-rollback");
     expect(phases).not.toContain("assert-restored-index-rollback");
-  } else if (baselineVersion === "2026.10.5") {
+  } else if (["2026.10.5", "2026.10.7"].includes(baselineVersion)) {
     expect(phases.slice(-2)).toEqual(["verify-backup-rollback", "verify-native-plugin-ui-opt-out"]);
   } else if (baselineVersion === "2026.9.4") {
     expect(phases.slice(-2)).toEqual(["verify-backup-rollback", "assert-restored-index-rollback"]);
@@ -444,7 +446,7 @@ trap 'case "$BASH_COMMAND" in "phase "*) install_fixture_phases ;; esac' DEBUG
     expect(phases.slice(-2)).toEqual(["verify-backup-rollback", "verify-sole-plugin-policy"]);
   }
   expect(phases.includes("verify-native-plugin-ui-opt-out")).toBe(
-    baselineVersion === "2026.10.5" && !fail,
+    ["2026.10.5", "2026.10.7"].includes(baselineVersion) && !fail,
   );
   expect(phases.includes("capture-sole-plugin-policy")).toBe(baselineVersion === "2026.9.2");
   expect(result.status, result.stderr).toBe(fail ? 43 : 0);
