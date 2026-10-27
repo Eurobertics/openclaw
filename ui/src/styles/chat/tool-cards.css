@@ -74,6 +74,7 @@
 
 .chat-tool-msg-collapse {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-width: 0;
   max-width: 100%;
