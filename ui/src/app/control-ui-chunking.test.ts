@@ -9,6 +9,35 @@ import {
 
 const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
 
+function buildFixture(
+  entry: string,
+  sources: Map<string, string>,
+  codeSplitting = controlUiCodeSplitting,
+) {
+  return build({
+    configFile: false,
+    publicDir: false,
+    logLevel: "silent",
+    plugins: [
+      {
+        name: entry.slice(1),
+        enforce: "pre",
+        resolveId: (id) => (sources.has(id) ? id : null),
+        load: (id) => sources.get(id) ?? null,
+      },
+    ],
+    build: {
+      write: false,
+      minify: false,
+      rolldownOptions: {
+        input: entry,
+        preserveEntrySignatures: "allow-extension",
+        output: { codeSplitting, strictExecutionOrder: true },
+      },
+    },
+  });
+}
+
 describe("Control UI build chunking", () => {
   it("keeps optional parsing and device signing outside the eager graph", async () => {
     const zod = modulePath("../../node_modules/zod/index.js");
@@ -38,28 +67,7 @@ describe("Control UI build chunking", () => {
       [markdown, `export { decode as render } from ${JSON.stringify(entities)};`],
       [entities, "export const decode = () => 'decoded';"],
     ]);
-    const result = await build({
-      configFile: false,
-      publicDir: false,
-      logLevel: "silent",
-      plugins: [
-        {
-          name: "config-parser-fixture",
-          enforce: "pre",
-          resolveId: (id) => (sources.has(id) ? id : null),
-          load: (id) => sources.get(id) ?? null,
-        },
-      ],
-      build: {
-        write: false,
-        minify: false,
-        rolldownOptions: {
-          input: entry,
-          preserveEntrySignatures: "allow-extension",
-          output: { codeSplitting: controlUiCodeSplitting, strictExecutionOrder: true },
-        },
-      },
-    });
+    const result = await buildFixture(entry, sources);
     if (Array.isArray(result) || !("output" in result)) {
       throw new Error("Expected one in-memory build");
     }
@@ -105,6 +113,13 @@ describe("Control UI build chunking", () => {
     const runFrame = modulePath("../pages/chat/components/chat-agent-run-frame.tsx");
     const runStream = modulePath("../pages/chat/components/chat-message-stream-view.tsx");
     const sourcePreviews = modulePath("../lib/chat/source-previews.ts");
+    const permissionCard = modulePath("../pages/chat/components/chat-permission-card.tsx");
+    const permissionLabels = modulePath("../i18n/locales/en-chat-permissions.ts");
+    const desktopProcessRow = modulePath(
+      "../pages/chat/components/chat-details-desktop-process-row.tsx",
+    );
+    const processRow = modulePath("../pages/chat/components/chat-details-process-row.tsx");
+    const subagentRows = modulePath("../pages/chat/components/chat-details-subagent-rows.tsx");
     const optional = modulePath("../components/assistant-panel-content-solid.tsx");
     const devices = modulePath("../pages/devices/devices-page.tsx");
     const cron = modulePath("../pages/cron/cron-page.tsx");
@@ -146,7 +161,7 @@ describe("Control UI build chunking", () => {
       ],
       [
         chat,
-        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)}); export const renderRun = () => import(${JSON.stringify(runFrame)});`,
+        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export { permission } from ${JSON.stringify(permissionCard)}; export const renderDesktopProcess = () => import(${JSON.stringify(desktopProcessRow)}); export const renderProcess = () => import(${JSON.stringify(processRow)}); export const renderSubagents = () => import(${JSON.stringify(subagentRows)}); export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)}); export const renderRun = () => import(${JSON.stringify(runFrame)});`,
       ],
       [
         newSession,
@@ -158,6 +173,11 @@ describe("Control UI build chunking", () => {
       ],
       [runStream, 'export const stream = "stream";'],
       [sourcePreviews, 'export const preview = "preview";'],
+      [permissionCard, `export { permission } from ${JSON.stringify(permissionLabels)};`],
+      [permissionLabels, 'export const permission = "permission";'],
+      [desktopProcessRow, 'export const row = "desktop-process";'],
+      [processRow, 'export const row = "process";'],
+      [subagentRows, 'export const rows = "subagents";'],
       [
         optional,
         `import ${JSON.stringify(optionalStyle)}; import { hubTabs } from ${JSON.stringify(hubTabs)}; import { link } from ${JSON.stringify(settingsUi)}; import { subtitle } from ${JSON.stringify(routeSubtitles)}; export const panel = hubTabs() + link + subtitle;`,
@@ -219,60 +239,35 @@ describe("Control UI build chunking", () => {
       [optionalStyle, ".optional-fixture { color: orange; }"],
       [inlineStyle, ".optional-fixture { color: orange; }"],
     ]);
-    const result = await build({
-      configFile: false,
-      publicDir: false,
-      logLevel: "silent",
-      plugins: [
-        {
-          name: "cold-load-fixture",
-          enforce: "pre",
-          resolveId: (id) => (sources.has(id) ? id : null),
-          load: (id) => sources.get(id) ?? null,
-        },
-      ],
-      build: {
-        write: false,
-        minify: false,
-        rolldownOptions: {
-          input: entry,
-          preserveEntrySignatures: "allow-extension",
-          output: {
-            codeSplitting: {
-              ...controlUiCodeSplitting,
-              // A stale capture must not pull a lazy page into the shared boot chunk.
-              groups: controlUiCodeSplitting.groups.map((group) => ({
-                ...group,
-                // Exercise grouping below the production chunk-size floor.
-                minSize: 0,
-                ...(group.name === "control-ui-boot-shared"
-                  ? {
-                      // Fixture sharing is independent of changing production captures.
-                      test: (id: string) =>
-                        [
-                          devices,
-                          sharedUi,
-                          sharedStyle,
-                          sidebarStyle,
-                          mutations,
-                          receipts,
-                          creation,
-                          unread,
-                        ].includes(id) || group.test(id),
-                    }
-                  : {}),
-                ...(group.name === "control-ui-boot-shared-styles"
-                  ? {
-                      test: (id: string) =>
-                        id === sharedStyle || id === sidebarStyle || group.test(id),
-                    }
-                  : {}),
-              })),
-            },
-            strictExecutionOrder: true,
-          },
-        },
-      },
+    const result = await buildFixture(entry, sources, {
+      ...controlUiCodeSplitting,
+      // A stale capture must not pull a lazy page into the shared boot chunk.
+      groups: controlUiCodeSplitting.groups.map((group) => ({
+        ...group,
+        // Exercise grouping below the production chunk-size floor.
+        minSize: 0,
+        ...(group.name === "control-ui-boot-shared"
+          ? {
+              // Fixture sharing is independent of changing production captures.
+              test: (id: string) =>
+                [
+                  devices,
+                  sharedUi,
+                  sharedStyle,
+                  sidebarStyle,
+                  mutations,
+                  receipts,
+                  creation,
+                  unread,
+                ].includes(id) || group.test(id),
+            }
+          : {}),
+        ...(group.name === "control-ui-boot-shared-styles"
+          ? {
+              test: (id: string) => id === sharedStyle || id === sidebarStyle || group.test(id),
+            }
+          : {}),
+      })),
     });
     if (Array.isArray(result) || !("output" in result)) {
       throw new Error("Expected one in-memory build");
@@ -304,6 +299,14 @@ describe("Control UI build chunking", () => {
     expect(staticImports(chatChunk.fileName)).not.toContain(runChunk.fileName);
     expect(staticImports(newSessionChunk.fileName)).not.toContain(runChunk.fileName);
     expect(chatChunk.dynamicImports).toContain(runChunk.fileName);
+    const visibleChunk = chunks.find((chunk) => permissionCard in chunk.modules)!;
+    expect(
+      [permissionLabels, desktopProcessRow, processRow, subagentRows].every(
+        (id) => id in visibleChunk.modules,
+      ),
+    ).toBe(true);
+    expect(staticImports(chatChunk.fileName)).toContain(visibleChunk.fileName);
+    expect(staticImports(visibleChunk.fileName)).not.toContain(runChunk.fileName);
     const pluginChunk = chunks.find((chunk) => pluginLoader in chunk.modules)!;
     const actionChunk = chunks.find((chunk) => pluginActions in chunk.modules)!;
     const sharedChunk = chunks.find((chunk) => sharedUi in chunk.modules)!;

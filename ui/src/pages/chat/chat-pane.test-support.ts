@@ -99,7 +99,6 @@ export type TestChatPane = HTMLElement &
       ReturnType<typeof createChatState<ChatPageHost>>,
       "attach" | "composerDraft" | "composerPersistence" | "createRenderLifecycle"
     >;
-    context: ApplicationContext;
     state: ChatPageHost;
     connectedClient: GatewayBrowserClient | null;
     applyGatewaySnapshot: (snapshot: ApplicationContext["gateway"]["snapshot"]) => void;

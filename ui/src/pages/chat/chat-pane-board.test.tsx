@@ -33,7 +33,7 @@ import {
 } from "./chat-pane-runtime.test-support.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import { ChatPaneStateOwner } from "./chat-pane-state-owner.ts";
-import { mountBoardPanel } from "./chat-pane.test-support.ts";
+import { mountBoardPanel, type TestChatPane as Pane } from "./chat-pane.test-support.ts";
 import { createInitialChatRealtimeState } from "./chat-realtime.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import {
@@ -75,30 +75,12 @@ vi.mock("../../lib/sessions/swarm-roster.ts", async (importOriginal) => {
   return importOriginal();
 });
 
-type TestChatPane = HTMLElement & {
-  readonly element: HTMLElement;
-  boardProvider?: BoardProvider;
-  connectedClient: GatewayBrowserClient | null;
-  connectionGeneration: number;
-  context: ApplicationContext;
-  state: ChatPageHost;
-  createSession: () => Promise<boolean>;
-  paneId: string;
-  presented: boolean;
-  visuallyPresented: boolean;
-  readonly conversationPresented: boolean;
+type TestChatPane = Pane & {
   presentedChanged: (presented: boolean) => void;
-  sessionKey: string;
-  resetConfirmation: { pending: object | undefined };
-  swarm: ChatPaneRuntime["swarm"];
   routeFace: "chat" | "dashboard";
-  dashboardExpanded: boolean;
-  onFaceChange?: (paneId: string, sessionKey: string, face: "chat" | "dashboard") => void;
   confirmConversationReset: () => Promise<boolean>;
   commitSidebarLayout: (layout: ChatPageHost["sidebarLayout"]) => void;
   settleResetConfirmation: (confirmed: boolean) => void;
-  prepareRender: () => void;
-  commitRender: () => void;
   handleBoardCommand: (event: BoardCommandEvent) => void;
   showDashboard: (expanded: boolean) => void;
   resolveBoardProvider: () => BoardProvider;

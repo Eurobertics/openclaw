@@ -33,6 +33,10 @@ const chatVisibleModules = new Set([
   "ui/src/lib/chat/tool-call-input.ts",
   "src/agents/tool-display-name.ts",
   "ui/src/i18n/locales/en-chat-details.ts",
+  "ui/src/i18n/locales/en-chat-permissions.ts",
+  "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx",
+  "ui/src/pages/chat/components/chat-details-process-row.tsx",
+  "ui/src/pages/chat/components/chat-details-subagent-rows.tsx",
   "ui/src/pages/chat/components/chat-environment-content.tsx",
 ]);
 
@@ -90,13 +94,9 @@ export function controlUiStableChunkName(id: string): string | undefined {
       return "chat-saved-annotations-runtime";
     case "ui/src/pages/chat/components/chat-transcript-search-content.tsx":
       return "chat-search-runtime";
-    case "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx":
-    case "ui/src/pages/chat/components/chat-details-process-row.tsx":
-    case "ui/src/pages/chat/components/chat-details-subagent-rows.tsx":
     case "ui/src/pages/chat/chat-composer-capability-host.tsx":
     case "ui/src/pages/chat/composer-library-session.ts":
-    case "ui/src/i18n/locales/en-chat-permissions.ts":
-      // First visible Details rows and opened composer controls share one fetched runtime.
+      // Opened composer controls share the preloaded interaction runtime.
       return "chat-interaction-runtime";
     case "ui/src/pages/chat/components/chat-ci-automation-control.tsx":
     case "ui/src/pages/chat/components/chat-ci-automation.tsx":

@@ -36,13 +36,6 @@ const chatInteractionEntries = new Set([
   // Image viewers and provider-review dialogs load only when their own UI is needed.
 ]);
 
-// Visible Details rows keep a parallel fetch without parsing their bodies for an empty panel.
-const chatPresentationEntries = new Set([
-  "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx",
-  "ui/src/pages/chat/components/chat-details-process-row.tsx",
-  "ui/src/pages/chat/components/chat-details-subagent-rows.tsx",
-]);
-
 export function collectControlUiStaticAssets(
   bundle: NonNullable<IndexHtmlTransformContext["bundle"]>,
   file: string,
@@ -78,7 +71,6 @@ export function collectControlUiBootAssets(
   }
   const routes = { chat: new Set(initial), new: new Set(initial) };
   const interactions = { chat: new Set<string>(), new: new Set<string>() };
-  const presentations = { chat: new Set<string>(), new: new Set<string>() };
   const login = new Set(initial);
   // Browser admission signs before the shell can become interactive. Download
   // the signer first without evaluating it or requesting its dynamic fallback.
@@ -109,13 +101,6 @@ export function collectControlUiBootAssets(
   for (const chunk of chunks) {
     // Optimized dynamic imports can live inside a shared chunk without a facade.
     const entries = chunk.facadeModuleId ? [chunk.facadeModuleId] : Object.keys(chunk.modules);
-    if (
-      [chunk.facadeModuleId, ...Object.keys(chunk.modules)].some(
-        (id) => id && chatPresentationEntries.has(controlUiBootManifestKey(id)),
-      )
-    ) {
-      collectControlUiStaticAssets(bundle, chunk.fileName, presentations.chat);
-    }
     // Forgetting local sign-in or rejecting cached admission must show the real
     // gate offline, not fail while downloading its optional component.
     if (
@@ -155,12 +140,7 @@ export function collectControlUiBootAssets(
   // Grouping can emit dynamic re-export facades that the ungrouped capture did
   // not need. They introduce no code beyond the measured graph, but a warm
   // import still requests their URL (for example, a sidebar controller).
-  for (const assets of [
-    ...Object.values(routes),
-    ...Object.values(presentations),
-    ...Object.values(interactions),
-    login,
-  ]) {
+  for (const assets of [...Object.values(routes), ...Object.values(interactions), login]) {
     let added;
     do {
       added = false;
@@ -179,14 +159,7 @@ export function collectControlUiBootAssets(
     } while (added);
   }
   const interactionOnly = { chat: new Set<string>(), new: new Set<string>() };
-  const presentationOnly = { chat: new Set<string>(), new: new Set<string>() };
   for (const route of ["chat", "new"] as const) {
-    for (const file of presentations[route]) {
-      if (!routes[route].has(file)) {
-        presentationOnly[route].add(file);
-        routes[route].add(file);
-      }
-    }
     for (const file of interactions[route]) {
       if (!routes[route].has(file)) {
         interactionOnly[route].add(file);
@@ -194,7 +167,7 @@ export function collectControlUiBootAssets(
       }
     }
   }
-  return { initial, ...routes, login, presentationOnly, interactionOnly };
+  return { initial, ...routes, login, interactionOnly };
 }
 
 export function controlUiBootPreloadsPlugin(): Plugin {
@@ -237,11 +210,9 @@ export function controlUiBootPreloadsPlugin(): Plugin {
                     href: `./${file}`,
                   }
                 : {
-                    ...(assets.presentationOnly[route].has(file)
-                      ? { rel: "preload", as: "script" }
-                      : assets.interactionOnly[route].has(file)
-                        ? { rel: "preload", as: "script", fetchpriority: "low" }
-                        : { rel: "modulepreload" }),
+                    ...(assets.interactionOnly[route].has(file)
+                      ? { rel: "preload", as: "script", fetchpriority: "low" }
+                      : { rel: "modulepreload" }),
                     crossorigin: "",
                     href: `./${file}`,
                   },
