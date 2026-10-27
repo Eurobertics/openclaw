@@ -36,7 +36,7 @@ const Content = lazy(() => import("./chat-header-session-menu-content.tsx"), {
   export: "ChatHeaderSessionMenuContent",
 });
 
-export type { HeaderMenuQuickAction, HeaderMenuSessionAction } from "./chat-quick-action.tsx";
+export type { HeaderMenuQuickAction } from "./chat-quick-action.tsx";
 
 export type CompactMenuView = CompactSessionMenuView | "sharing" | "view";
 export type HeaderMenuProps = {
