@@ -25,7 +25,7 @@ export function createLiveActivity(gateway: ApplicationGateway, sessions: Sessio
   let client = gateway.snapshot.client;
   let visible = document.visibilityState !== "hidden";
   let pendingEvents: NonNullable<ReturnType<typeof parseActivityEvent>>[] = [];
-  let frame: number | undefined;
+  let scheduledFlush: ReturnType<typeof setTimeout> | undefined;
   const subscriptions = new Map<string, ReturnType<SessionCapability["subscribeMessages"]>>();
   const release = (key: string) => {
     const pending = subscriptions.get(key);
@@ -103,14 +103,14 @@ export function createLiveActivity(gateway: ApplicationGateway, sessions: Sessio
     }
   };
 
-  const cancelFrame = () => {
-    if (frame !== undefined) {
-      cancelAnimationFrame(frame);
-      frame = undefined;
+  const cancelFlush = () => {
+    if (scheduledFlush !== undefined) {
+      clearTimeout(scheduledFlush);
+      scheduledFlush = undefined;
     }
   };
   const flushPending = () => {
-    cancelFrame();
+    cancelFlush();
     if (pendingEvents.length === 0) {
       return;
     }
@@ -132,7 +132,7 @@ export function createLiveActivity(gateway: ApplicationGateway, sessions: Sessio
     eventLogRevision = revision;
     presentationScope = nextPresentationScope;
     pendingEvents = [];
-    cancelFrame();
+    cancelFlush();
     rows = [];
     syncSubscriptions();
     publish([], true);
@@ -171,12 +171,13 @@ export function createLiveActivity(gateway: ApplicationGateway, sessions: Sessio
     ) {
       // Admission stays synchronous and ordered. Only this feed's presentation
       // work moves off transport delivery; chat/sidebar still receive every event.
+      // A task boundary yields without waiting an extra display frame in WebKit.
       pendingEvents.push(activityEvent);
-      frame ??= requestAnimationFrame(() => {
-        frame = undefined;
+      scheduledFlush ??= setTimeout(() => {
+        scheduledFlush = undefined;
         retireChangedContext();
         flushPending();
-      });
+      }, 0);
     }
   });
 
@@ -208,13 +209,13 @@ export function createLiveActivity(gateway: ApplicationGateway, sessions: Sessio
     },
     clear() {
       pendingEvents = [];
-      cancelFrame();
+      cancelFlush();
       publish([], true);
     },
     dispose() {
       disposed = true;
       pendingEvents = [];
-      cancelFrame();
+      cancelFlush();
       syncSubscriptions();
       stopVisibility();
       stopPageHide();
