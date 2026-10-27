@@ -921,7 +921,7 @@ impl DesktopState {
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let ready = gateway::ensure_ready(&cli)?;
-        self.finish_local_connection(app, cli, ready)
+        self.finish_local_connection(app, cli, ready, false)
     }
 
     pub fn install_cli(
@@ -1011,7 +1011,7 @@ impl DesktopState {
         let ready = readiness.map_err(|error| {
             format!("OpenClaw is installed, but connecting to the Gateway failed: {error}")
         })?;
-        self.finish_local_connection(app, cli, ready)
+        self.finish_local_connection(app, cli, ready, false)
             .map_err(|error| {
                 format!("OpenClaw is installed, but opening the Gateway dashboard failed: {error}")
             })
@@ -1040,7 +1040,7 @@ impl DesktopState {
             return Ok(snapshot);
         }
         let ready = gateway::dashboard(&cli, snapshot)?;
-        self.finish_local_connection(app, cli, ready)
+        self.finish_local_connection(app, cli, ready, false)
     }
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -1077,7 +1077,7 @@ impl DesktopState {
         *self.inner.cli.lock().expect("CLI mutex poisoned") = Some(cli.clone());
         let snapshot = gateway::status(&cli)?;
         let ready = gateway::dashboard(&cli, snapshot)?;
-        self.finish_local_connection(app, cli, ready)
+        self.finish_local_connection(app, cli, ready, true)
     }
 
     fn finish_local_connection(
@@ -1085,6 +1085,7 @@ impl DesktopState {
         app: &AppHandle,
         cli: OpenClawCli,
         ready: ReadyGateway,
+        replace_document: bool,
     ) -> Result<GatewaySnapshot, String> {
         let snapshot = ready.snapshot.clone();
         let generation = self.on_main(app, move |state, app| {
@@ -1099,6 +1100,7 @@ impl DesktopState {
                     &ready.dashboard_url,
                     true,
                     true,
+                    replace_document,
                 )?;
             }
             // Explicit completion publishes fresh credentials even while Settings owns the page.
@@ -1916,7 +1918,14 @@ impl DesktopState {
             if state.is_quitting() || !navigation.permit_local(force, expected_generation) {
                 return Ok(false);
             }
-            state.navigate_local_document(&app, &mut navigation, &target, false, dashboard)?;
+            state.navigate_local_document(
+                &app,
+                &mut navigation,
+                &target,
+                false,
+                dashboard,
+                false,
+            )?;
             Ok(true)
         })
     }
@@ -1929,6 +1938,7 @@ impl DesktopState {
         target: &str,
         reveal_window: bool,
         dashboard: bool,
+        replace_document: bool,
     ) -> Result<(), String> {
         let windows = app.state::<gateway_windows::GatewayWindows>();
         let base = Url::parse(target).map_err(|_| "Dashboard returned an invalid URL.")?;
@@ -1947,7 +1957,8 @@ impl DesktopState {
         let automatic_setup = navigation.automatic_setup;
         let bridge = app.state::<native_browser_bridge::NativeBrowserBridgeState>();
         let bridge_script = if dashboard {
-            bridge.select(app, &base, false)?
+            // A runtime update changes the dashboard bytes even when only its auth fragment changes.
+            bridge.select(app, &base, replace_document)?
         } else {
             bridge.clear(app);
             None
@@ -2052,7 +2063,14 @@ impl DesktopState {
                 return Ok(());
             }
             // The transport is already owned; initialize only its dashboard document.
-            state.navigate_local_document(&app, &mut navigation, &ready.dashboard_url, false, true)
+            state.navigate_local_document(
+                &app,
+                &mut navigation,
+                &ready.dashboard_url,
+                false,
+                true,
+                false,
+            )
         })
     }
 
