@@ -187,7 +187,7 @@ describe("resolveMatrixAuth", () => {
 
   it("rejects embedded credentials in Matrix homeserver URLs", async () => {
     await expect(
-      resolveAuth({ ...tokenConfig, homeserver: "https://user:pass@matrix.example.org" }),
+      resolveAuth({ ...tokenConfig, homeserver: "https://user:pass@matrix.example.org" }), // trufflehog:ignore
     ).rejects.toThrow("Matrix homeserver URL must not include embedded credentials");
   });
 
