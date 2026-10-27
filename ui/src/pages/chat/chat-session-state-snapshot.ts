@@ -1,8 +1,8 @@
 import type { GatewaySessionRow } from "../../api/types.ts";
+import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import { resolveUiSessionNavigationParentKey } from "../../lib/sessions/session-key.ts";
 import * as json from "../../lib/snapshot-json.ts";
-import type { ChatState } from "./chat-state-contract.ts";
 
 export const chatSessionStateSnapshotSchema = json.object({
   archived: json.optional(json.boolean),
@@ -15,7 +15,9 @@ export const chatSessionStateSnapshotSchema = json.object({
 export type ChatSessionStateSnapshot = json.SnapshotValue<typeof chatSessionStateSnapshotSchema>;
 
 export function projectChatSessionStateSnapshot(
-  state: Pick<ChatState, "client" | "hello" | "connected" | "sessionKey">,
+  state: Pick<ApplicationGatewaySnapshot, "client" | "hello" | "sessionKey"> & {
+    connected: boolean;
+  },
   session: GatewaySessionRow,
   previous: ChatSessionStateSnapshot | undefined,
 ): ChatSessionStateSnapshot {
