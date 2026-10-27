@@ -764,6 +764,17 @@ if [[ -n "$SNOOZE_PROOF" && -n "$("$ADB_BIN" devices | awk 'NR > 1 && NF { print
   "$ADB_BIN" devices >&2
   exit 1
 fi
+
+# Keep compilation off the emulator's boot and rendering CPU budget.
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  diagnostic_phase before-build
+  (
+    cd "$ANDROID_DIR"
+    ./gradlew "$GRADLE_ASSEMBLE_TASK"
+  )
+  diagnostic_phase after-build
+fi
+
 diagnostic_phase before-device
 resolve_device "$ADB_BIN"
 diagnostic_phase boot-complete
@@ -782,14 +793,6 @@ if [[ -z "$SNOOZE_PROOF" ]]; then
   rm -f "$OUTPUT_DIR"/*.png "$OUTPUT_DIR"/*.jpg "$OUTPUT_DIR"/*.jpeg
 fi
 
-if [[ "$SKIP_BUILD" != "1" ]]; then
-  diagnostic_phase before-build
-  (
-    cd "$ANDROID_DIR"
-    ./gradlew "$GRADLE_ASSEMBLE_TASK"
-  )
-  diagnostic_phase after-build
-fi
 if [[ "$SKIP_INSTALL" != "1" ]]; then
   diagnostic_phase before-install
   APK_PATH="$(latest_debug_apk)"

@@ -97,6 +97,32 @@ exit 97
   expect(result.stderr).not.toContain("unexpected adb invocation");
 });
 
+it.each(["phone", "wear"] as const)(
+  "does not start device discovery when the %s screenshot build fails",
+  (formFactor) => {
+    const { root } = captureFixture(formFactor);
+    const androidDir = path.join(root, "apps/android");
+    mkdirSync(androidDir, { recursive: true });
+    executable(androidDir, "gradlew", "echo 'Synthetic screenshot build failure' >&2\nexit 42\n");
+    const deviceAccess = path.join(root, "device-access");
+    const adb = executable(
+      root,
+      "adb",
+      `touch "$FIXTURE_DEVICE_ACCESS"\necho 'Device discovery preceded compilation' >&2\nexit 43\n`,
+    );
+
+    const result = runAndroidScreenshots(
+      ["--form-factor", formFactor, "--skip-install"],
+      { ADB: adb, FIXTURE_DEVICE_ACCESS: deviceAccess },
+      path.join(root, SCRIPT),
+    );
+
+    expect(result.status, result.stderr).toBe(42);
+    expect(result.stderr).toContain("Synthetic screenshot build failure");
+    expect(existsSync(deviceAccess)).toBe(false);
+  },
+);
+
 it("retains emulator diagnostics and the failing status when startup stops before screenshots", () => {
   const { root, run } = captureFixture("wear");
   const readyPipe = path.join(root, "emulator-ready");

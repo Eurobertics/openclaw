@@ -347,6 +347,9 @@ Install the API 36 Google APIs and API 34 Wear OS system images in the local
 Android SDK. Use `--form-factor phone|wear` with `--avd` or `--device` to
 explicitly capture one form factor from another emulator.
 
+Each form factor's debug APK is built before starting its screenshot emulator,
+so compilation does not compete with emulator boot or rendering.
+
 For a nonpublishing hosted replay, select `screenshots` in **Android Emulator
 Diagnostic** and supply the exact candidate commit SHA. It runs the same phone
 and Wear capture script with `ANDROID_SCREENSHOT_DIAGNOSTICS=1`, recording phase
