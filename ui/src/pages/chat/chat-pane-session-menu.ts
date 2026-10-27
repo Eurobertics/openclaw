@@ -46,6 +46,7 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
     const state = this.state;
     const hydration = state && chatHistoryRequests(state).initialSnapshotHydration;
     const session = row ?? this.resourceSessionObservation()?.row ?? undefined;
+    const created = this.context.chatSubmissions.readAcceptedCreate();
     return chatSessionPresentationTitle(
       state,
       session ?? this.transcriptSessionProps(session).transcriptMetadata,
@@ -54,6 +55,9 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
         hydration?.titlePending &&
         areUiSessionKeysEquivalent(hydration.sessionKey, this.sessionKey),
       ),
+      created && areUiSessionKeysEquivalent(created.creation.sessionKey, this.sessionKey)
+        ? created.displayName
+        : undefined,
     );
   }
 
