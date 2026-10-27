@@ -308,7 +308,10 @@ it("does not infer microphone recovery from error text", async () => {
   });
 });
 
-it("enables camera only after a video-capable voice session starts", async () => {
+it.each([
+  ["enables camera only after a video-capable voice session starts", false],
+  ["does not change the remembered preference when the camera track ends", true],
+] as const)("%s", async (_name, trackEnds) => {
   const setVideoEnabled = mockVideo();
   const session = await startVideo();
   const stream = {} as MediaStream;
@@ -321,11 +324,13 @@ it("enables camera only after a video-capable voice session starts", async () =>
   expect(read().realtimeTalkVideoStream).toBe(stream);
   expect(loadSettings().talkCameraAutoEnable).toBe(true);
 
-  await state.toggleRealtimeTalkCamera();
-  expect(setVideoEnabled).toHaveBeenLastCalledWith(false);
+  if (!trackEnds) {
+    await state.toggleRealtimeTalkCamera();
+    expect(setVideoEnabled).toHaveBeenLastCalledWith(false);
+  }
   session.callbacks.onVideoStream?.(null);
   expect(read().realtimeTalkVideoStream).toBeNull();
-  expect(loadSettings().talkCameraAutoEnable).toBe(false);
+  expect(loadSettings().talkCameraAutoEnable).toBe(trackEnds);
 });
 
 it.each([
@@ -361,7 +366,9 @@ it.each([
 );
 
 it("uses the latest Settings camera choice on the next enable", async () => {
-  const switchCamera = vi.spyOn(RealtimeTalkSession.prototype, "switchCamera");
+  const switchCamera = vi
+    .spyOn(RealtimeTalkSession.prototype, "switchCamera")
+    .mockResolvedValue(undefined);
   mockVideo();
 
   await startVideo();
@@ -399,20 +406,6 @@ it.each([false, true])(
   },
 );
 
-it("does not change the remembered preference when the camera track ends", async () => {
-  mockVideo();
-
-  const session = await startVideo();
-  await state.toggleRealtimeTalkCamera();
-  session.callbacks.onVideoStream?.({} as MediaStream);
-  expect(loadSettings().talkCameraAutoEnable).toBe(true);
-
-  session.callbacks.onVideoStream?.(null);
-
-  expect(read().realtimeTalkVideoStream).toBeNull();
-  expect(loadSettings().talkCameraAutoEnable).toBe(true);
-});
-
 it("does not let a stale camera-off completion overwrite a newer camera stream", async () => {
   const cameraOff = createDeferred();
   const setVideoEnabled = vi
@@ -439,9 +432,7 @@ it("does not let a stale camera-off completion overwrite a newer camera stream",
 });
 
 it("cycles live cameras in enumeration order and persists the successful switch", async () => {
-  const switchCamera = vi
-    .spyOn(RealtimeTalkSession.prototype, "switchCamera")
-    .mockResolvedValue(undefined);
+  const switchCamera = vi.spyOn(RealtimeTalkSession.prototype, "switchCamera");
 
   await state.toggleRealtimeTalk();
   preview("back", "Back Camera");
