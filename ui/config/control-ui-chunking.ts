@@ -86,7 +86,6 @@ export function controlUiStableChunkName(id: string): string | undefined {
     case "ui/src/pages/chat/chat-view-notices-content.tsx":
     case "ui/src/pages/chat/chatgpt-usage-limit.tsx":
       return "chat-notices-runtime";
-    case "ui/src/pages/chat/components/chat-comment-pins.tsx":
     case "ui/src/pages/chat/components/chat-selection-annotation-rows.tsx":
       return "chat-saved-annotations-runtime";
     case "ui/src/pages/chat/components/chat-transcript-search-content.tsx":
@@ -547,6 +546,7 @@ export function createControlUiCodeSplitting(options: { includeBootGroups?: bool
                 styles.add("ui/src/pages/chat/components/chat-pane-mobile-composition.css");
                 styles.add("ui/src/styles/chat/context-breakdown.css");
                 styles.add("ui/src/pages/chat/components/chat-session-activity.css");
+                styles.add("ui/src/pages/chat/components/chat-details-processes.css");
               }
               return {
                 name: `control-ui-boot-${route}-styles`,
