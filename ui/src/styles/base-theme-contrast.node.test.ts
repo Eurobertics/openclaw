@@ -5,6 +5,13 @@ import { fileURLToPath } from "node:url";
 import postcss, { type Rule } from "postcss";
 import { describe, expect, it } from "vitest";
 import {
+  oklchToLinearRgb,
+  participantColors,
+  rgbToOklch,
+  type Oklch,
+  type ParticipantPalette,
+} from "../lib/chat/participant-colors.ts";
+import {
   readThemeBlocks,
   resolveThemes,
   resolveColor,
@@ -66,9 +73,7 @@ const declarations = (rule: Rule) =>
 function readRule(rules: Rule[], selector: string) {
   return declarations(
     required(
-      rules.find((rule) =>
-        rule.selectors.some((candidate) => candidate.replace(/\s+/gu, " ") === selector),
-      ),
+      rules.find((rule) => rule.selectors.includes(selector)),
       selector,
     ),
   );
@@ -132,44 +137,34 @@ describe("Control UI theme contrast", () => {
   const bubblePaints = (theme: string, tokens: TokenMap) => {
     const light = theme === "light" || theme.endsWith("-light");
     const page = resolveOpaqueColor("var(--bg-content)", tokens);
-    const lightRoot = ':where(:root[data-theme-mode="light"]) ';
-    const lightUser = lightRoot + ".chat-group.user .chat-bubble";
-    const sender =
-      ".chat-group:is(.user, .chat-group--forwarded).chat-group--sender-tint .chat-bubble";
-    const paint = (selector: string, property = "--chat-bubble-background") =>
-      readPaint(readRule(groupedRules, selector), property);
-    const background = (selector: string, palette = tokens) =>
-      composite(resolveColor(paint(selector), palette), page);
-    const tinted = (selector: string, property = "--chat-bubble-background") => {
-      const rule = readRule(groupedRules, selector);
-      const value = readPaint(rule, property);
-      const palette = new Map([...tokens, ...rule]);
-      return Array.from({ length: 360 }, (_, hue) =>
-        composite(
-          resolveColor(value, new Map(palette).set("--chat-sender-hue", String(hue))),
-          page,
-        ),
-      );
+    const toOklch = ([r, g, b]: RGB) => rgbToOklch([r / 255, g / 255, b / 255]);
+    const palette: ParticipantPalette = {
+      mode: light ? "light" : "dark",
+      background: toOklch(page),
+      accent: toOklch(resolveOpaqueColor("var(--accent)", tokens)),
     };
+    const rgb = (color: Oklch): RGB => {
+      const encode = (channel: number) =>
+        255 * (channel <= 0.0031308 ? 12.92 * channel : 1.055 * channel ** (1 / 2.4) - 0.055);
+      const [r, g, b] = oklchToLinearRgb(color);
+      return [encode(r), encode(g), encode(b)];
+    };
+    // Production palette samples are measured against the independent WCAG floors below.
+    const identities = Array.from({ length: 360 }, (_, hue) => participantColors(palette, hue));
+    const surfaces = identities.map((colors) => rgb(colors.bubble));
     return {
       page,
       light,
-      user: background(".chat-group.user .chat-bubble"),
-      lightUserText: paint(lightUser, "color"),
-      sender: tinted(
-        light ? lightRoot + ".chat-group.user.chat-group--sender-tint .chat-bubble" : sender,
-      ),
-      senderNames: tinted(
-        (light ? ':root[data-theme-mode="light"] ' : "") +
-          ".chat-group.user.chat-group--sender-tint .chat-sender-name",
-        "--chat-sender-name-color",
-      ),
-      forwarded: () =>
-        tinted(
-          light
-            ? lightRoot + ".chat-group.chat-group--forwarded.chat-group--sender-tint .chat-bubble"
-            : sender,
+      user: rgb(participantColors(palette, null).bubble),
+      lightUserText: readPaint(
+        readRule(
+          groupedRules,
+          ':where(:root[data-theme-mode="light"]) .chat-group.user .chat-bubble',
         ),
+        "color",
+      ),
+      sender: surfaces,
+      senderNames: identities.map((colors) => rgb(colors.name)),
     };
   };
 
@@ -292,8 +287,8 @@ describe("Control UI theme contrast", () => {
       "GitHub chip focus paint",
     );
     for (const [theme, palette] of themes) {
-      const { page, user, sender, forwarded } = bubblePaints(theme, palette);
-      const hosts = [page, user, ...sender, ...forwarded()];
+      const { page, user, sender } = bubblePaints(theme, palette);
+      const hosts = [page, user, ...sender];
       const neutralTokens = new Map(palette).set(
         "--github-item-tone",
         readPaint(base, "--github-item-tone"),
@@ -336,25 +331,19 @@ describe("Control UI theme contrast", () => {
         link,
     };
     for (const [themeName, tokens] of themes) {
-      const { page, light, user, sender, senderNames, forwarded, lightUserText } = bubblePaints(
+      const { page, light, user, sender, senderNames, lightUserText } = bubblePaints(
         themeName,
         tokens,
       );
-      const identitySurfaces = [...sender, ...forwarded()];
       expectFloor(
         Math.min(...senderNames.map((ink) => contrastRatio(ink, page))),
         AA_NORMAL_TEXT_MIN,
         `${themeName}: sender names on canvas`,
       );
 
-      if (light) {
-        const foreground = resolveOpaqueColor(lightUserText, tokens);
-        expectFloor(contrastRatio(foreground, user), AA_NORMAL_TEXT_MIN, `${themeName}: user text`);
-      }
-
       for (const [role, surfaces, ink] of [
-        ["user", sender, light ? lightUserText : "var(--chat-text)"],
-        ["forwarded", forwarded(), "var(--chat-text)"],
+        ["user", [user, ...sender], light ? lightUserText : "var(--chat-text)"],
+        ["forwarded", sender, "var(--chat-text)"],
       ] as const) {
         const body = resolveOpaqueColor(ink, tokens);
         expectFloor(
@@ -373,7 +362,7 @@ describe("Control UI theme contrast", () => {
           contrastRatio(composite(foreground, background), background);
         expectFloor(ratioOn(user), AA_NORMAL_TEXT_MIN, `${themeName}: ${state} on user bubble`);
         expectFloor(
-          Math.min(...identitySurfaces.map(ratioOn)),
+          Math.min(...sender.map(ratioOn)),
           AA_NORMAL_TEXT_MIN,
           `${themeName}: ${state} on sender tints`,
         );

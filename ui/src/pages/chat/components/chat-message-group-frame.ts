@@ -199,7 +199,7 @@ export function prepareMessageGroupFrame(
   const hasUserFooterActions =
     normalizedRole === "user" &&
     ((opts.onRewind && !opts.rewindDisabled) || hasMessageActionButtons(footerActionDetails, opts));
-  // Source sessions share the stable sender hue machinery; CSS owns contrast
+  // Source sessions share stable sender hues; the shared participant palette owns contrast
   // in each theme. Own and unattributed messages keep the theme-derived accent skin.
   const senderHue =
     isForwarded && sourceSessionKey
@@ -266,7 +266,7 @@ export function prepareMessageGroupFrame(
         "chat-group--reply": holdsReplyRow,
       },
     ],
-    style: senderHue === null ? undefined : `--chat-sender-hue: ${senderHue}`,
+    senderHue,
     sessionKey: sourceSessionKey ?? undefined,
   };
 }

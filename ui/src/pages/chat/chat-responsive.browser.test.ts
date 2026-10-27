@@ -1397,7 +1397,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         await page.setContent(
           `<!doctype html><html data-theme-mode="${theme}"><head><style>${readUiCss()}</style></head><body>
           <div class="chat-group user ${tinted ? "chat-group--sender-tint" : ""}"
-            style="--chat-sender-hue: 208">
+            style="--chat-participant-surface: #d4e5f4">
             <div class="chat-bubble chat-bubble--with-images">
               <div
                 class="chat-message-images chat-message-images--gallery chat-message-images--five"
@@ -1461,7 +1461,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         await page.setContent(
           `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
           <div class="chat-group user ${tinted ? "chat-group--sender-tint" : ""}"
-            style="--chat-sender-hue: 208">
+            style="--chat-participant-surface: #d4e5f4">
             <div class="chat-bubble" data-reference>Text-only message</div>
             <div class="chat-bubble chat-bubble--with-images">
               <div class="chat-text" data-shape="text">Short text</div>
@@ -1500,6 +1500,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
             backgroundColor: getComputedStyle(bubble).backgroundColor,
             color: getComputedStyle(bubble).color,
           }));
+          expect(reference.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
           expect(surfaces[0]).toEqual({ ...reference, padding: "10px 14px" });
           expect(surfaces[1]).toEqual(surfaces[0]);
           expect(surfaces[2]).toEqual(surfaces[0]);

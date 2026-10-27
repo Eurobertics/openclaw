@@ -1,6 +1,7 @@
 import { createSignal, For } from "solid-js";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { page } from "vitest/browser";
+import { syncControlUiSystemChrome } from "../../app/control-ui-presentation.ts";
 import type { MessageGroup as MessageGroupData } from "../../lib/chat/chat-types.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { flush, waitForSolid } from "../../test-helpers/solid-settle.ts";
@@ -270,7 +271,7 @@ it.each([1440, 1024, 390].flatMap((width) => ["light", "dark"].map((theme) => ({
 );
 
 it.each(["light", "dark"])(
-  "keeps viewer and forwarded messages on their theme surfaces (%s)",
+  "keeps participant identity stable while viewer colors follow the accent (%s)",
   async (mode) => {
     const root = document.body.appendChild(document.createElement("div"));
     root.className = "chat";
@@ -298,6 +299,7 @@ it.each(["light", "dark"])(
       } else {
         style.removeProperty("--accent");
       }
+      syncControlUiSystemChrome(true);
     });
     const [viewer, setViewer] = createSignal("alice");
     const entries = (
@@ -342,28 +344,51 @@ it.each(["light", "dark"])(
       ),
       { container: root },
     );
-    const probe = root.appendChild(document.createElement("span"));
-    probe.style.background = "var(--chat-user-surface)";
+    const peers = new Map<string, { bubble: string; name: string }>();
+    const viewers: { bubble: string; name: string }[] = [];
+    const colors = (bubble: HTMLElement) => ({
+      bubble: getComputedStyle(bubble).backgroundColor,
+      name: getComputedStyle(bubble.closest(".chat-group")!.querySelector(".chat-sender-name")!)
+        .color,
+    });
     for (const accent of ["#a04c29", "#357ac6"]) {
       style.setProperty("--accent", accent);
+      syncControlUiSystemChrome(true);
+      let viewerColors: { bubble: string; name: string } | undefined;
       for (const id of ["alice", "bob"]) {
         setViewer(id);
         await waitForSolid(() =>
           expect(root.querySelectorAll(".chat-group.user .chat-bubble")).toHaveLength(3),
         );
-        const expected = getComputedStyle(probe).backgroundColor;
         const bubbles = [...root.querySelectorAll<HTMLElement>(".chat-group.user .chat-bubble")];
-        expect(getComputedStyle(bubbles[id === "alice" ? 0 : 1]!).backgroundColor).toBe(expected);
-        expect(getComputedStyle(bubbles[id === "alice" ? 1 : 0]!).backgroundColor).not.toBe(
-          expected,
-        );
-        expect(getComputedStyle(bubbles[2]!).backgroundColor).not.toBe(expected);
+        const own = colors(bubbles[id === "alice" ? 0 : 1]!);
+        if (viewerColors) {
+          expect(own).toEqual(viewerColors);
+        } else {
+          viewerColors = own;
+          viewers.push(own);
+        }
+        for (const [peerId, index] of [
+          [id === "alice" ? "bob" : "alice", id === "alice" ? 1 : 0],
+          ["legacy", 2],
+        ] as const) {
+          const peer = colors(bubbles[index]!);
+          expect(peer.bubble).not.toBe(own.bubble);
+          const previous = peers.get(peerId);
+          if (previous) {
+            expect(peer).toEqual(previous);
+          } else {
+            peers.set(peerId, peer);
+          }
+        }
       }
     }
+    expect(viewers[0]!.bubble).not.toBe(viewers[1]!.bubble);
+    expect(viewers[0]!.name).not.toBe(viewers[1]!.name);
     const forwarded = root.querySelector<HTMLElement>(".chat-group--forwarded .chat-bubble")!;
     const originalFill = getComputedStyle(forwarded).backgroundColor;
-    // Exercise the cascade: only the light forwarded skin uses the raised surface.
+    // Moving elevated panels into a separate PR must not change transcript colors.
     forwarded.style.setProperty("--bg-elevated", "#bcdcea");
-    expect(getComputedStyle(forwarded).backgroundColor === originalFill).toBe(mode === "dark");
+    expect(getComputedStyle(forwarded).backgroundColor).toBe(originalFill);
   },
 );

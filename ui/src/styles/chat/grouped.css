@@ -437,14 +437,16 @@
   color: color-mix(in srgb, var(--chat-sender-name-color, var(--muted)) 60%, var(--text));
 }
 
-:where(.chat-group.user.chat-group--sender-tint) .chat-sender-name.person-activity-link {
-  color: var(--chat-sender-name-color);
-}
-
 .chat-sender-name.person-activity-link:hover,
 .chat-sender-name.person-activity-link:focus-visible {
   color: color-mix(in srgb, var(--chat-sender-name-color, var(--muted)) 50%, var(--text));
   text-decoration: none;
+}
+
+:where(.chat-group.user) .chat-sender-name.person-activity-link,
+:where(.chat-group.user) .chat-sender-name.person-activity-link:hover,
+:where(.chat-group.user) .chat-sender-name.person-activity-link:focus-visible {
+  color: var(--chat-sender-name-color);
 }
 
 .chat-message-source {
@@ -1440,7 +1442,7 @@ button.chat-reply-attribution__target:disabled {
 
 /* User bubbles have different styling */
 .chat-group.user .chat-bubble {
-  --chat-bubble-background: var(--chat-user-surface);
+  --chat-bubble-background: var(--chat-participant-surface);
   background: var(--chat-bubble-background);
 
   :where(.shell[data-background-managed]) & {
@@ -1486,11 +1488,9 @@ button.chat-reply-attribution__target:disabled {
   box-shadow: none;
 }
 
-/* Sender identity keeps its hue. Dark tints sit on the canvas; light tints
-   use the raised surface so the canvas does not muddy the pigment. */
+/* Participant colors are resolved by the shared theme presentation owner. */
 .chat-group:is(.user, .chat-group--forwarded).chat-group--sender-tint .chat-bubble {
-  --chat-sender-color: hsl(var(--chat-sender-hue) 48% 42%);
-  --chat-bubble-background: color-mix(in srgb, var(--chat-sender-color) 16%, var(--bg-content));
+  --chat-bubble-background: var(--chat-participant-surface);
   background: var(--chat-bubble-background);
 
   :where(.shell[data-background-managed]) & {
@@ -1504,29 +1504,9 @@ button.chat-reply-attribution__target:disabled {
   border-color: transparent;
 }
 
-.chat-group.user.chat-group--sender-tint .chat-sender-name {
-  --chat-sender-name-color: hsl(var(--chat-sender-hue) 45% 70%);
-}
-
-:where(:root[data-theme-mode="light"]) .chat-group.user.chat-group--sender-tint .chat-bubble,
-:where(:root[data-theme-mode="light"])
-  .chat-group.chat-group--forwarded.chat-group--sender-tint
-  .chat-bubble {
-  --chat-sender-color: hsl(var(--chat-sender-hue) 65% 50%);
-  --chat-bubble-background: color-mix(in srgb, var(--chat-sender-color) 12%, var(--bg-elevated));
-}
-
-/* Keep tinted user turns borderless when the generic light hover skin applies. */
 :root[data-theme-mode="light"] .chat-group.user.chat-group--sender-tint .chat-bubble:hover {
   border-color: transparent;
   box-shadow: none;
-}
-
-:root[data-theme-mode="light"] .chat-group.user.chat-group--sender-tint .chat-sender-name {
-  /* The name sits on the canvas, so yellow/green identity ink needs the
-     theme's darker text mixed in to retain readable contrast. */
-  --chat-sender-name-tint: hsl(var(--chat-sender-hue) 60% 36%);
-  --chat-sender-name-color: color-mix(in srgb, var(--chat-sender-name-tint) 50%, var(--text));
 }
 
 /* Ephemeral drafts share sent-turn geometry, typography, and identity tint. */

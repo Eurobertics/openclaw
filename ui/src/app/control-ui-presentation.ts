@@ -1,3 +1,6 @@
+import { createChangeListeners } from "../../../src/shared/listeners.js";
+import { hexToOklch, type ParticipantPalette } from "../lib/chat/participant-colors.ts";
+import { resolveThemeColor } from "../lib/theme-color.ts";
 import { controlUiAccentInk } from "./accent-contrast.ts";
 import { controlUiDocumentHead } from "./control-ui-document-head.ts";
 import { controlUiPaletteStyle } from "./control-ui-palette-style.ts";
@@ -17,6 +20,17 @@ const ACCENT_CSS_VARIABLES = [
   "--focus-ring",
   "--focus-glow",
 ] as const;
+
+let participantPaletteValue: ParticipantPalette | undefined;
+let participantPaletteKey = "";
+const participantPaletteListeners = createChangeListeners();
+
+export const controlUiParticipantPalette = {
+  get current() {
+    return participantPaletteValue;
+  },
+  subscribe: participantPaletteListeners.subscribe,
+};
 
 let operatorSeamColor: string | undefined;
 let userAccentOverride: string | undefined;
@@ -49,6 +63,19 @@ export function syncControlUiSystemChrome(paletteChanged = false, chatShell?: bo
     return;
   }
   const computedStyle = getComputedStyle(root);
+  const canvas = resolveThemeColor(computedStyle, "--bg-content");
+  const accent = resolveThemeColor(computedStyle, "--accent");
+  const mode = root.dataset.themeMode === "light" ? "light" : "dark";
+  const nextParticipantKey = JSON.stringify([canvas, accent, mode]);
+  if (
+    nextParticipantKey !== participantPaletteKey &&
+    /^#[\da-f]{6}$/iu.test(canvas) &&
+    /^#[\da-f]{6}$/iu.test(accent)
+  ) {
+    participantPaletteKey = nextParticipantKey;
+    participantPaletteValue = { mode, background: hexToOklch(canvas), accent: hexToOklch(accent) };
+    participantPaletteListeners.publish();
+  }
   const pageBackground = computedStyle.getPropertyValue("--bg").trim();
   const background =
     narrow && hasChatShell
