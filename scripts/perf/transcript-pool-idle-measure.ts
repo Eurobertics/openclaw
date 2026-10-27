@@ -101,7 +101,6 @@ const { runOpenClawAgentWriteTransaction, closeOpenClawAgentDatabasesAsync } =
 const { closeOpenClawStateDatabaseAsync } = await import("../../src/state/openclaw-state-db.js");
 const { resolveOpenClawAgentSqlitePath } =
   await import("../../src/state/openclaw-agent-db.paths.js");
-const { disposeSqliteStatement } = await import("../../src/infra/kysely-sync-cache-state.js");
 const { withSessionHistoryWorkerDatabase } =
   await import("../../src/config/sessions/session-transcript-worker-runtime.js");
 const { historyLane, transcriptSearchLane, projectionLane, maintenanceLane, targetDiscoveryLane } =
@@ -135,21 +134,16 @@ runOpenClawAgentWriteTransaction(({ db }) => {
   const window = db.prepare(`INSERT INTO session_windows
     (session_id,session_key,created_at,updated_at,transcript_updated_at,status)
     VALUES (?,?,?,?,?,'done')`);
-  try {
-    for (let index = 0; index < sessions; index++) {
-      const id = `synthetic-${index}`;
-      const key = `agent:main:subagent:${id}`;
-      node.run(
-        key,
-        id,
-        JSON.stringify({ sessionId: id, updatedAt: index + 1, status: "done" }),
-        index + 1,
-      );
-      window.run(id, key, index + 1, index + 1, index + 1);
-    }
-  } finally {
-    disposeSqliteStatement(node);
-    disposeSqliteStatement(window);
+  for (let index = 0; index < sessions; index++) {
+    const id = `synthetic-${index}`;
+    const key = `agent:main:subagent:${id}`;
+    node.run(
+      key,
+      id,
+      JSON.stringify({ sessionId: id, updatedAt: index + 1, status: "done" }),
+      index + 1,
+    );
+    window.run(id, key, index + 1, index + 1, index + 1);
   }
 }, database);
 await closeOpenClawAgentDatabasesAsync();
