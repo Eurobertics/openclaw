@@ -113,13 +113,10 @@ describe("Control UI build chunking", () => {
     const runFrame = modulePath("../pages/chat/components/chat-agent-run-frame.tsx");
     const runStream = modulePath("../pages/chat/components/chat-message-stream-view.tsx");
     const sourcePreviews = modulePath("../lib/chat/source-previews.ts");
+    const sourcePreviewView = modulePath("../pages/chat/components/chat-source-previews.tsx");
     const permissionCard = modulePath("../pages/chat/components/chat-permission-card.tsx");
     const permissionLabels = modulePath("../i18n/locales/en-chat-permissions.ts");
-    const desktopProcessRow = modulePath(
-      "../pages/chat/components/chat-details-desktop-process-row.tsx",
-    );
     const processRow = modulePath("../pages/chat/components/chat-details-process-row.tsx");
-    const subagentRows = modulePath("../pages/chat/components/chat-details-subagent-rows.tsx");
     const optional = modulePath("../components/assistant-panel-content-solid.tsx");
     const devices = modulePath("../pages/devices/devices-page.tsx");
     const cron = modulePath("../pages/cron/cron-page.tsx");
@@ -161,7 +158,7 @@ describe("Control UI build chunking", () => {
       ],
       [
         chat,
-        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export { permission } from ${JSON.stringify(permissionCard)}; export const renderDesktopProcess = () => import(${JSON.stringify(desktopProcessRow)}); export const renderProcess = () => import(${JSON.stringify(processRow)}); export const renderSubagents = () => import(${JSON.stringify(subagentRows)}); export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)}); export const renderRun = () => import(${JSON.stringify(runFrame)});`,
+        `import ${JSON.stringify(sharedStyle)}; import ${JSON.stringify(transcriptStyle)}; import { label } from ${JSON.stringify(sharedUi)}; import { action } from ${JSON.stringify(pluginActions)}; import { patch } from ${JSON.stringify(mutations)}; export { version } from ${JSON.stringify(inlineView)}; export { skeleton } from ${JSON.stringify(skeleton)}; export { card } from ${JSON.stringify(permissionCard)}; export { row as process } from ${JSON.stringify(processRow)}; export { renderRun, renderPreview } from ${JSON.stringify(runFrame)}; export class Chat { label = patch(action(label)); } export const openPanel = () => import(${JSON.stringify(optional)});`,
       ],
       [
         newSession,
@@ -169,15 +166,17 @@ describe("Control UI build chunking", () => {
       ],
       [
         runFrame,
-        `export { stream } from ${JSON.stringify(runStream)}; export { preview } from ${JSON.stringify(sourcePreviews)};`,
+        `import { stream } from ${JSON.stringify(runStream)}; import { preview } from ${JSON.stringify(sourcePreviews)}; export const renderRun = () => stream + preview; export const renderPreview = () => import(${JSON.stringify(sourcePreviewView)});`,
       ],
       [runStream, 'export const stream = "stream";'],
       [sourcePreviews, 'export const preview = "preview";'],
-      [permissionCard, `export { permission } from ${JSON.stringify(permissionLabels)};`],
+      [sourcePreviewView, 'export const view = "source-preview";'],
+      [
+        permissionCard,
+        `import { permission } from ${JSON.stringify(permissionLabels)}; export const card = () => permission;`,
+      ],
       [permissionLabels, 'export const permission = "permission";'],
-      [desktopProcessRow, 'export const row = "desktop-process";'],
       [processRow, 'export const row = "process";'],
-      [subagentRows, 'export const rows = "subagents";'],
       [
         optional,
         `import ${JSON.stringify(optionalStyle)}; import { hubTabs } from ${JSON.stringify(hubTabs)}; import { link } from ${JSON.stringify(settingsUi)}; import { subtitle } from ${JSON.stringify(routeSubtitles)}; export const panel = hubTabs() + link + subtitle;`,
@@ -296,15 +295,13 @@ describe("Control UI build chunking", () => {
     expect(staticImports(newSessionChunk.fileName)).not.toContain(chatChunk.fileName);
     const runChunk = chunks.find((chunk) => runFrame in chunk.modules)!;
     expect([runStream, sourcePreviews].every((id) => id in runChunk.modules)).toBe(true);
-    expect(staticImports(chatChunk.fileName)).not.toContain(runChunk.fileName);
+    expect(staticImports(chatChunk.fileName)).toContain(runChunk.fileName);
     expect(staticImports(newSessionChunk.fileName)).not.toContain(runChunk.fileName);
-    expect(chatChunk.dynamicImports).toContain(runChunk.fileName);
+    const previewChunk = chunks.find((chunk) => sourcePreviewView in chunk.modules)!;
+    expect(staticImports(chatChunk.fileName)).not.toContain(previewChunk.fileName);
+    expect(runChunk.dynamicImports).toContain(previewChunk.fileName);
     const visibleChunk = chunks.find((chunk) => permissionCard in chunk.modules)!;
-    expect(
-      [permissionLabels, desktopProcessRow, processRow, subagentRows].every(
-        (id) => id in visibleChunk.modules,
-      ),
-    ).toBe(true);
+    expect([permissionLabels, processRow].every((id) => id in visibleChunk.modules)).toBe(true);
     expect(staticImports(chatChunk.fileName)).toContain(visibleChunk.fileName);
     expect(staticImports(visibleChunk.fileName)).not.toContain(runChunk.fileName);
     const pluginChunk = chunks.find((chunk) => pluginLoader in chunk.modules)!;

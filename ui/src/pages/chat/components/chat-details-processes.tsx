@@ -1,14 +1,7 @@
-import {
-  Errored,
-  For,
-  Loading,
-  Show,
-  createMemo,
-  createSignal,
-  isPending,
-  latest,
-  lazy,
-} from "solid-js";
+import { Errored, For, Loading, Show, createMemo, createSignal, isPending, latest } from "solid-js";
+import type { SessionProcessSummary } from "../../../../../packages/gateway-protocol/src/schema/session-processes.js";
+import { Icon } from "../../../components/solid/icon.tsx";
+import { useScrollState } from "../../../components/solid/scroll-state.ts";
 import { registerChatDetailsEnglish } from "../../../i18n/locales/en-chat-details.ts";
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
@@ -17,12 +10,7 @@ import type { ProcessesPanelData } from "../processes-panel-data.ts";
 import "./chat-details-processes.css";
 import { ChatDetailsDesktopSection } from "./chat-details-desktop-section.tsx";
 import { createDetailsProcessesPresentation } from "./chat-details-processes-presentation.ts";
-import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
 import { createProcessesPresentation } from "./chat-processes-presentation.ts";
-
-const ProcessRow = lazy(() => import("./chat-details-desktop-process-row.tsx"), {
-  export: "ChatDetailsDesktopProcessRow",
-});
 
 registerEnglishCatalog(registerChatSessionEnglish);
 registerEnglishCatalog(registerChatDetailsEnglish);
@@ -35,6 +23,76 @@ type Props = {
   onExpandedChange: (expanded: boolean) => void;
   onOpen?: (instanceId?: string) => void;
 };
+
+function ProcessRow(props: {
+  row: SessionProcessSummary;
+  presentation: ReturnType<typeof createProcessesPresentation>;
+  presented: boolean;
+  onOpen: () => void;
+  elementRef: (instanceId: string) => (element: HTMLDivElement) => void;
+}) {
+  const stop = createMemo(() => props.presentation.createStop(() => props.row));
+  const nameOverflow = useScrollState(true, false, { revision: () => props.row.name });
+  const status = () =>
+    t(
+      stop().stopping()
+        ? "chat.processesPanel.stopping"
+        : `chat.processesPanel.status.${props.row.status}`,
+    );
+  const description = () => `${props.row.name}. ${status()}`;
+  return (
+    <div
+      ref={[props.elementRef(props.row.instanceId)]}
+      class="chat-details-processes__row"
+      role="listitem"
+      data-process-id={props.row.processId}
+      data-status={props.row.status}
+      data-stopping={stop().stopping() ? "" : undefined}
+      data-actionable={props.row.canStop ? "" : undefined}
+    >
+      <button
+        class="chat-details-processes__open"
+        type="button"
+        aria-label={description()}
+        disabled={!props.presented}
+        onClick={() => props.onOpen()}
+      >
+        <span class="chat-details-processes__icon" aria-hidden="true">
+          <Icon name="squareTerminal" />
+          <span class="chat-details-processes__badge" data-status={props.row.status}>
+            <span class="chat-details-processes__spinner" />
+          </span>
+        </span>
+        <span class="chat-details-processes__name" ref={nameOverflow}>
+          {props.row.name}
+        </span>
+      </button>
+      <Show when={props.row.status === "running" && props.row.canStop}>
+        <button
+          class="chat-details-processes__action chat-details-processes__stop"
+          type="button"
+          title={t("chat.processesPanel.stopProcess")}
+          aria-label={t("chat.processesPanel.stop", { name: props.row.name })}
+          disabled={!props.presented || stop().stopping()}
+          onClick={() => {
+            if (props.presented) {
+              void stop().stop();
+            }
+          }}
+        >
+          <Show when={stop().stopping()} fallback={<Icon name="stop" />}>
+            <span class="chat-details-processes__spinner" />
+          </Show>
+        </button>
+      </Show>
+      <Show when={stop().stopping()}>
+        <span class="sr-only" role="status">
+          {status()}
+        </span>
+      </Show>
+    </div>
+  );
+}
 
 /** Desktop list using the same process snapshot and operations as the full panel. */
 export function ChatDetailsProcesses(props: Props) {
@@ -87,19 +145,17 @@ export function ChatDetailsProcesses(props: Props) {
             role="list"
             aria-label={t("chat.sessionDetails.processes")}
           >
-            <ChatLazyBoundary>
-              <For each={visibleRows()} keyed={(row) => row.instanceId}>
-                {(row) => (
-                  <ProcessRow
-                    row={row()}
-                    elementRef={motion.row}
-                    presentation={presentation}
-                    presented={props.presented}
-                    onOpen={() => open(row().instanceId)}
-                  />
-                )}
-              </For>
-            </ChatLazyBoundary>
+            <For each={visibleRows()} keyed={(row) => row.instanceId}>
+              {(row) => (
+                <ProcessRow
+                  row={row()}
+                  elementRef={motion.row}
+                  presentation={presentation}
+                  presented={props.presented}
+                  onOpen={() => open(row().instanceId)}
+                />
+              )}
+            </For>
           </div>
           <button
             class="chat-details-processes__view-all"

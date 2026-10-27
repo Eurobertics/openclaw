@@ -34,9 +34,7 @@ const chatVisibleModules = new Set([
   "src/agents/tool-display-name.ts",
   "ui/src/i18n/locales/en-chat-details.ts",
   "ui/src/i18n/locales/en-chat-permissions.ts",
-  "ui/src/pages/chat/components/chat-details-desktop-process-row.tsx",
   "ui/src/pages/chat/components/chat-details-process-row.tsx",
-  "ui/src/pages/chat/components/chat-details-subagent-rows.tsx",
   "ui/src/pages/chat/components/chat-environment-content.tsx",
 ]);
 

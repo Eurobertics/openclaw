@@ -1,4 +1,4 @@
-import { For, Show, createMemo, lazy } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 import { registerChatDetailsEnglish } from "../../../i18n/locales/en-chat-details.ts";
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import { registerProcessesEnglish } from "../../../i18n/locales/en-processes.ts";
@@ -6,13 +6,8 @@ import { registerSessionOrganizationEnglish } from "../../../i18n/locales/en-ses
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { createKeyedListMotion } from "../../../lib/reactive/keyed-list-motion.ts";
 import type { ProcessesPanelData } from "../processes-panel-data.ts";
-import "./chat-details-processes.css";
-import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
+import { ChatDetailsProcessRow } from "./chat-details-process-row.tsx";
 import type { createProcessesPresentation } from "./chat-processes-presentation.ts";
-
-const ChatDetailsProcessRow = lazy(() => import("./chat-details-process-row.tsx"), {
-  export: "ChatDetailsProcessRow",
-});
 
 registerEnglishCatalog(registerChatSessionEnglish);
 registerEnglishCatalog(registerChatDetailsEnglish);
@@ -74,19 +69,17 @@ export function ChatDetailsMobileProcesses(props: ChatDetailsMobileProcessesProp
                 </Show>
                 <Show when={props.data.rows.length > 0}>
                   <div role="list" aria-label={t("chat.sessionDetails.processes")}>
-                    <ChatLazyBoundary>
-                      <For each={visibleRows()} keyed={(row) => row.instanceId}>
-                        {(row) => (
-                          <ChatDetailsProcessRow
-                            presentation={props.data.presentation}
-                            row={row()}
-                            elementRef={motion.row}
-                            disabled={!props.presented}
-                            onOpen={props.onOpen}
-                          />
-                        )}
-                      </For>
-                    </ChatLazyBoundary>
+                    <For each={visibleRows()} keyed={(row) => row.instanceId}>
+                      {(row) => (
+                        <ChatDetailsProcessRow
+                          presentation={props.data.presentation}
+                          row={row()}
+                          elementRef={motion.row}
+                          disabled={!props.presented}
+                          onOpen={props.onOpen}
+                        />
+                      )}
+                    </For>
                   </div>
                   <Show when={props.onOpen}>
                     <button

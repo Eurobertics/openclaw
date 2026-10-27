@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { Errored, For, Loading, Show, createMemo, createSignal, latest, lazy } from "solid-js";
+import { Errored, For, Loading, Show, createMemo, createSignal, latest } from "solid-js";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { registerChatDetailsEnglish } from "../../../i18n/locales/en-chat-details.ts";
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
@@ -13,16 +13,12 @@ import {
   ChatDetailsDesktopSection,
   createDetailsDesktopReveal,
 } from "./chat-details-desktop-section.tsx";
+import { ChatDetailsProcessRow } from "./chat-details-process-row.tsx";
 import { createDetailsProcessesPresentation } from "./chat-details-processes-presentation.ts";
 import { ChatDetailsSubagents, type ChatDetailsSubagentsProps } from "./chat-details-subagents.tsx";
 import type { ChatDetailsProps } from "./chat-details-types.ts";
-import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
 import { createProcessesPresentation } from "./chat-processes-presentation.ts";
 import { ChatSubagentActivity } from "./chat-subagent-activity-lazy.tsx";
-
-const ChatDetailsProcessRow = lazy(() => import("./chat-details-process-row.tsx"), {
-  export: "ChatDetailsProcessRow",
-});
 
 registerEnglishCatalog(registerChatSessionEnglish);
 registerEnglishCatalog(registerChatDetailsEnglish);
@@ -348,19 +344,17 @@ function DetailsProcesses(
         </Show>
         <Show when={processRows().length > 0}>
           <div role="list" aria-label={t("chat.sessionDetails.processes")}>
-            <ChatLazyBoundary>
-              <For each={visibleRows()} keyed={(row) => row.instanceId}>
-                {(row) => (
-                  <ChatDetailsProcessRow
-                    row={row()}
-                    presentation={presentation}
-                    disabled={!props.presented}
-                    hoverDescription
-                    onOpen={props.details.onOpenProcesses ? openProcesses : undefined}
-                  />
-                )}
-              </For>
-            </ChatLazyBoundary>
+            <For each={visibleRows()} keyed={(row) => row.instanceId}>
+              {(row) => (
+                <ChatDetailsProcessRow
+                  row={row()}
+                  presentation={presentation}
+                  disabled={!props.presented}
+                  hoverDescription
+                  onOpen={props.details.onOpenProcesses ? openProcesses : undefined}
+                />
+              )}
+            </For>
           </div>
           <Show when={props.details.onOpenProcesses}>
             <button
