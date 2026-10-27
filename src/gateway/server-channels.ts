@@ -42,7 +42,6 @@ import { createPluginRuntimeCapabilityLease } from "../plugins/capability-lease.
 import {
   createPluginHttpRouteHandoff,
   withPluginHttpRouteRegistry,
-  type PluginHttpRouteHandoff,
 } from "../plugins/http-registry.js";
 import { runPluginCleanup } from "../plugins/plugin-instance-scope.js";
 import type { PluginRegistry } from "../plugins/registry.js";
@@ -69,19 +68,22 @@ import {
 } from "./channel-status-patches.js";
 import { waitForChannelStopGracefully } from "./channel-stop-timeout.js";
 import {
+  captureChannelAccountRestart,
   createChannelAccountLifetime,
   runChannelAccountStop,
-  type ChannelAccountLifetime,
   type ChannelAccountStopOutcome,
 } from "./server-channel-account-lifetime.js";
 import { createChannelAutostartRecovery } from "./server-channel-autostart-recovery.js";
 import type {
   ChannelAccountStartOutcome,
+  ChannelAccountStopState,
+  ChannelRuntimeStore,
   ChannelRuntimeSnapshot,
   ChannelRuntimeSnapshotOptions,
   StartChannelOptions,
+  StopChannelOptions,
 } from "./server-channel-runtime.types.js";
-import { pauseChannelStarts, type ChannelStartFence } from "./server-channel-start-fence.js";
+import { pauseChannelStarts } from "./server-channel-start-fence.js";
 import {
   runChannelAccountMonitor,
   runChannelAccountStartup,
@@ -102,16 +104,6 @@ const CHANNEL_STOP_ABORT_TIMEOUT_MS = 5_000;
 // Private context key carried through the generic Plugin SDK registry. This is
 // not a new public capability surface; only the host installs its authority.
 const CHANNEL_APPROVAL_GATEWAY_RUNTIME_CONTEXT_CAPABILITY = "approval.gateway";
-
-type ChannelRuntimeStore = {
-  startFence?: ChannelStartFence;
-  lifetimes: Map<string, ChannelAccountLifetime>;
-  routeHandoffs: Map<string, PluginHttpRouteHandoff>;
-  starting: Map<string, Promise<void>>;
-  stops: Map<string, ChannelAccountStopState>;
-  tasks: Map<string, Promise<unknown>>;
-  runtimes: Map<string, ChannelAccountSnapshot>;
-};
 
 export type ChannelAutostartSuppression = {
   reason: "crash-loop-breaker";
@@ -141,20 +133,6 @@ type ChannelManagerOptions = {
   isClosing?: () => boolean;
 };
 
-type StopChannelOptions = {
-  manual?: boolean;
-  routeHandoff?: boolean;
-  /** Report unfinished cleanup to the caller after the bounded stop attempt. */
-  strict?: boolean;
-};
-
-type ChannelAccountStopState = (
-  | { status: "stopping"; attempt: Promise<ChannelAccountStopOutcome>; settled: boolean }
-  | Extract<ChannelAccountStopOutcome, { status: "rejected" }>
-) & {
-  cleanup?: Promise<ChannelAccountStopOutcome>;
-};
-
 export type ChannelManager = {
   getRuntimeSnapshot: (options?: ChannelRuntimeSnapshotOptions) => ChannelRuntimeSnapshot;
   pauseChannelStarts: (
@@ -167,6 +145,11 @@ export type ChannelManager = {
     opts?: StartChannelOptions,
   ) => Promise<ReadonlyMap<string, ChannelAccountStartOutcome>>;
   stopChannel: (channel: ChannelId, accountId?: string, opts?: StopChannelOptions) => Promise<void>;
+  captureAccountRestart: (
+    channel: ChannelId,
+    accountId: string,
+    reason: StartChannelOptions["reason"],
+  ) => ((shouldContinue: () => boolean) => Promise<boolean>) | undefined;
   releaseChannelRouteHandoffs: (channel: ChannelId, accountId?: string) => void;
   setAutostartSuppression: (suppression: ChannelAutostartSuppression | null) => void;
   getAutostartSuppression: () => ChannelAutostartSuppression | null;
@@ -1476,7 +1459,20 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     return { channels, channelAccounts, reloadingChannels };
   };
 
-  return {
+  const isAccountListed: ChannelManager["isAccountListed"] = (channelId, accountId) => {
+    const fence = channelStores.get(channelId)?.startFence;
+    // Failed reloads retain diagnostic facts without calling unavailable plugin code.
+    return fence && fence.state !== "published"
+      ? (fence.snapshot?.listedAccountIds.has(accountId) ?? false)
+      : withRegistry(
+          (registry) =>
+            getLoadedChannelPluginEntryById(channelId, registry)
+              ?.plugin.config.listAccountIds(getRuntimeConfig())
+              .includes(accountId) ?? false,
+        );
+  };
+
+  const manager: ReturnType<typeof createChannelManager> = {
     getRuntimeSnapshot,
     pauseChannelStarts: (channelIds) =>
       pauseChannelStarts(channelIds, getStore, (channelId) => {
@@ -1486,6 +1482,15 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     startChannels: () => startChannelsWithOptions(),
     startChannel: startChannelInternal,
     stopChannel,
+    captureAccountRestart: (channelId, accountId, reason) =>
+      captureChannelAccountRestart({
+        store: channelStores.get(channelId),
+        channelId,
+        accountId,
+        reason,
+        manager,
+        log: ensureChannelLog(channelId),
+      }),
     releaseChannelRouteHandoffs,
     pruneInactiveChannelAccountState,
     setAutostartSuppression: (suppression) => {
@@ -1515,18 +1520,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
         lifetime.plugin === getChannelPlugin(channelId),
       );
     },
-    isAccountListed: (channelId, accountId) => {
-      const fence = channelStores.get(channelId)?.startFence;
-      // Failed reloads retain diagnostic facts without calling unavailable plugin code.
-      return fence && fence.state !== "published"
-        ? (fence.snapshot?.listedAccountIds.has(accountId) ?? false)
-        : withRegistry(
-            (registry) =>
-              getLoadedChannelPluginEntryById(channelId, registry)
-                ?.plugin.config.listAccountIds(getRuntimeConfig())
-                .includes(accountId) ?? false,
-          );
-    },
+    isAccountListed,
     resolveRuntimeAccountId: (channelId, accountId) => {
       const matches = [...(channelStores.get(channelId)?.runtimes.keys() ?? [])].filter(
         (id) => normalizeAccountId(id) === accountId,
@@ -1541,5 +1535,6 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     isHealthMonitorEnabled: (channelId, accountId) =>
       resolveChannelHealthMonitorEnabled(getRuntimeConfig(), channelId, accountId),
   };
+  return manager;
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

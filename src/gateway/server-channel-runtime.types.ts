@@ -1,4 +1,34 @@
 import type { ChannelId, ChannelAccountSnapshot } from "../channels/plugins/types.public.js";
+import type { PluginHttpRouteHandoff } from "../plugins/http-registry.js";
+import type {
+  ChannelAccountLifetime,
+  ChannelAccountStopOutcome,
+} from "./server-channel-account-lifetime.js";
+import type { ChannelStartFence } from "./server-channel-start-fence.js";
+
+export type ChannelRuntimeStore = {
+  startFence?: ChannelStartFence;
+  lifetimes: Map<string, ChannelAccountLifetime>;
+  routeHandoffs: Map<string, PluginHttpRouteHandoff>;
+  starting: Map<string, Promise<void>>;
+  stops: Map<string, ChannelAccountStopState>;
+  tasks: Map<string, Promise<unknown>>;
+  runtimes: Map<string, ChannelAccountSnapshot>;
+};
+
+export type StopChannelOptions = {
+  manual?: boolean;
+  routeHandoff?: boolean;
+  /** Report unfinished cleanup to the caller after the bounded stop attempt. */
+  strict?: boolean;
+};
+
+export type ChannelAccountStopState = (
+  | { status: "stopping"; attempt: Promise<ChannelAccountStopOutcome>; settled: boolean }
+  | Extract<ChannelAccountStopOutcome, { status: "rejected" }>
+) & {
+  cleanup?: Promise<ChannelAccountStopOutcome>;
+};
 
 export type ChannelRuntimeSnapshotOptions = {
   channelId?: ChannelId;
