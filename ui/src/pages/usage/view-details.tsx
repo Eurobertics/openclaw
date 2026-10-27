@@ -9,8 +9,8 @@ import { charsToTokens, formatUsageCost, formatUsageTokens } from "./metrics.ts"
 import { renderUsageRefreshStatus } from "./page-shell.tsx";
 import { createUsageRead, UsagePending, UsageReadStatus } from "./read-status.tsx";
 import type { SessionLogRole, UsageContextDetail, UsageProps, UsageSessionEntry } from "./types.ts";
-import { renderSessionSummary } from "./view-session-summary.tsx";
 import { SessionLogList } from "./view-session-logs.tsx";
+import { renderSessionSummary } from "./view-session-summary.tsx";
 import { deriveTimeSeries, TimeSeriesCompact } from "./view-timeseries.tsx";
 
 function pct(part: number, total: number): number {

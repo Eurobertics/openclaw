@@ -40,7 +40,12 @@ function mountConversation(lines = 12, fontSize = 13) {
             get logFilters() {
               return filters();
             },
-            sessionLogsStatus: { hasLoaded: true, error: null, stale: false, awaitingGateway: false },
+            sessionLogsStatus: {
+              hasLoaded: true,
+              error: null,
+              stale: false,
+              awaitingGateway: false,
+            },
           }}
           callbacks={{
             ...base.callbacks.details,
@@ -77,14 +82,18 @@ it("windows long conversations in the page scroller and retains local disclosure
   await waitForSolid(() => {
     expect(viewport.querySelectorAll(".session-log-entry").length).toBeLessThan(30);
     expect(viewport.querySelector(".session-logs-header-count")?.textContent).toContain("1000");
-    expect(viewport.querySelectorAll('select[aria-label="Filter by tool"] option')).toHaveLength(10);
+    expect(viewport.querySelectorAll('select[aria-label="Filter by tool"] option')).toHaveLength(
+      10,
+    );
   });
   viewport.scrollTop = listOffset() + 10 * 740;
   await waitForSolid(() => expect(tools(10)).toBeDefined());
   await userEvent.click(tools(10)!.querySelector("summary")!);
   await waitForSolid(() => expect(tools(10)?.open).toBe(true));
   const savedTop =
-    row(10)!.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
+    row(10)!.getBoundingClientRect().top -
+    viewport.getBoundingClientRect().top +
+    viewport.scrollTop;
   fixture.view.getByRole("textbox", { name: "Search conversation" }).focus();
   row(999)!.scrollIntoView();
   await waitForSolid(() => {
@@ -99,7 +108,9 @@ it("windows long conversations in the page scroller and retains local disclosure
   await waitForSolid(() => {
     expect(viewport.querySelectorAll(".session-log-entry")).toHaveLength(1);
     expect(row(0)?.textContent).toContain("message-999");
-    expect(viewport.querySelector(".session-logs-header-count")?.textContent).toContain("1 of 1000");
+    expect(viewport.querySelector(".session-logs-header-count")?.textContent).toContain(
+      "1 of 1000",
+    );
   });
   await userEvent.click(viewport.querySelector<HTMLButtonElement>(".session-log-filters button")!);
   await waitForSolid(() =>
@@ -149,7 +160,9 @@ it("keeps the focused summary and its next native Tab target mounted during scro
   expect(target.top).toBeLessThan(bounds.bottom);
 
   row(999)!.scrollIntoView();
-  await waitForSolid(() => expect(document.activeElement).toBe(tools(11)!.querySelector("summary")));
+  await waitForSolid(() =>
+    expect(document.activeElement).toBe(tools(11)!.querySelector("summary")),
+  );
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(summary);
   const previous = row(10)!.getBoundingClientRect();

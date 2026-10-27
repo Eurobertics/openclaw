@@ -45,7 +45,9 @@ export function SessionLogList(props: {
       : { receipt, expanded, overrides: new Map() };
   });
   const formatTimestamp = createMemo(() => createMsFormatter(undefined, t("common.na")));
-  const receiptIndexes = createMemo(() => new Map(props.entries.map((entry, index) => [entry, index])));
+  const receiptIndexes = createMemo(
+    () => new Map(props.entries.map((entry, index) => [entry, index])),
+  );
   const rowIndexes = createMemo(() => new Map(props.rows.map((entry, index) => [entry, index])));
   const itemKey = createMemo(() => {
     const rows = props.rows;
