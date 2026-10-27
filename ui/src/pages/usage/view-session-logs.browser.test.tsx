@@ -28,7 +28,7 @@ function mountConversation(lines = 12, fontSize = 13) {
       <div class="usage-page">
         <style>{`main.content .session-log-content { font-size: ${fontSize}px; }`}</style>
         <SessionDetailPanel
-          session={{ key: "synthetic-conversation", label: "Synthetic conversation" }}
+          session={{ key: "synthetic-conversation", label: "Synthetic conversation", usage: null }}
           detail={{
             ...base.detail,
             get sessionLogs() {
