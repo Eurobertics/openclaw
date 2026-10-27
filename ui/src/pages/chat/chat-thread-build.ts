@@ -440,7 +440,6 @@ export function buildChatItems(
       message: createCanvasAssistantMessage(preview, timestamp),
     });
   }
-  items = reconcileLiveCanvasPreviews(items, hiddenHistoryKeys, hiddenKeys);
   const projections: ChatProjection[] = [];
   if (compaction && compactionKey && !hasPersistedCompaction) {
     const timestamp = compaction.startedAt ?? compaction.completedAt ?? Date.now();
@@ -734,6 +733,7 @@ export function buildChatItems(
   const projectYields = (source: ChatItem[], complete?: ChatItem[]) =>
     projectSessionsYieldItems(source, props.showToolCalls, complete);
   // Keep real user boundaries even when search hides their rows.
+  items = reconcileLiveCanvasPreviews(items, hiddenHistoryKeys, hiddenKeys);
   items = projectRunFailureStreaks(items);
   const complete = hidden ? projectYields(coalesceToolActivityMessages(items)) : undefined;
   return groupMessages(

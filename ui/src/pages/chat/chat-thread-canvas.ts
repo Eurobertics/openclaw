@@ -1,6 +1,6 @@
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { extractCanvasShortcodes } from "../../../../src/chat/canvas-render.js";
-import type { ChatItem, NormalizedMessage } from "../../lib/chat/chat-types.ts";
+import type { ChatItem, MessageGroup, NormalizedMessage } from "../../lib/chat/chat-types.ts";
 import {
   canvasPreviewsMatch,
   readCanvasContentPreview,
@@ -53,23 +53,20 @@ export function collectCanvasTurns(
   });
 }
 
-/** Reconcile terminal copies after owned previews exist, retaining full rows for causal placement. */
-export function reconcileLiveCanvasPreviews(
-  items: ChatItem[],
-  hiddenHistoryKeys: ReadonlySet<string>,
-  hiddenInputKeys: ReadonlySet<string>,
-): ChatItem[] {
-  const ownedCanvas = items.flatMap((item) => {
-    if (
-      item.kind !== "message" ||
-      readLiveTerminalRunId(item.message) ||
-      hiddenHistoryKeys.has(item.key) ||
-      hiddenInputKeys.has(item.key)
-    ) {
+export function collectOwnedCanvasPreviews(items: readonly (ChatItem | MessageGroup)[]) {
+  const messages = items.flatMap((item) =>
+    item.kind === "group"
+      ? item.messages.map((entry) => entry.message)
+      : item.kind === "message"
+        ? [item.message]
+        : [],
+  );
+  return messages.flatMap((source) => {
+    if (readLiveTerminalRunId(source)) {
       return [];
     }
-    const runId = transcriptRunId(item.message);
-    const message = runId ? safeNormalizeMessage(item.message) : null;
+    const runId = transcriptRunId(source);
+    const message = runId ? safeNormalizeMessage(source) : null;
     if (!message || normalizeRoleForGrouping(message.role) !== "assistant") {
       return [];
     }
@@ -77,7 +74,37 @@ export function reconcileLiveCanvasPreviews(
       block.type === "canvas" ? [{ runId, preview: block.preview }] : [],
     );
   });
+}
+
+export function stripOwnedCanvasShortcodes(
+  text: string,
+  runId: string | null | undefined,
+  ownedCanvas: ReturnType<typeof collectOwnedCanvasPreviews>,
+): string {
+  if (ownedCanvas.length === 0) {
+    return text;
+  }
+  return extractCanvasShortcodes(text, (preview) =>
+    ownedCanvas.some(
+      (entry) => entry.runId === runId && canvasPreviewsMatch(entry.preview, preview),
+    ),
+  ).text;
+}
+
+/** Reconcile live copies after the owned previews and stream rows have been placed. */
+export function reconcileLiveCanvasPreviews(
+  items: ChatItem[],
+  hiddenHistoryKeys: ReadonlySet<string>,
+  hiddenInputKeys: ReadonlySet<string>,
+): ChatItem[] {
+  const ownedCanvas = collectOwnedCanvasPreviews(
+    items.filter((item) => !hiddenHistoryKeys.has(item.key) && !hiddenInputKeys.has(item.key)),
+  );
   for (const item of items) {
+    if (item.kind === "stream") {
+      item.text = stripOwnedCanvasShortcodes(item.text, item.runId, ownedCanvas);
+      continue;
+    }
     if (item.kind !== "message") {
       continue;
     }
@@ -113,7 +140,9 @@ export function reconcileLiveCanvasPreviews(
       item.message = projection;
     }
   }
-  return items.filter(
-    (item) => item.kind !== "message" || hasRenderableNormalizedMessage(item.message),
+  return items.filter((item) =>
+    item.kind === "stream"
+      ? Boolean(item.text.trim() || item.thinking)
+      : item.kind !== "message" || hasRenderableNormalizedMessage(item.message),
   );
 }
