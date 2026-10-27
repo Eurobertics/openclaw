@@ -276,7 +276,7 @@ it("steers configured, session and explicit inputs through current authority int
             queueKey: sessionKey,
             replyOperationRunState: resultState,
             resolvedQueue,
-            restartRecoverySourceTurnId: undefined,
+            sourceTurnId: undefined,
             runFollowup: followup,
             sessionCtx: {},
             sessionKey,

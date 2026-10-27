@@ -32,7 +32,6 @@ import {
 import { listRpcSourceEntries } from "../sessions/session-controller.rpc-sources.js";
 import { registerSkillUsageTracking } from "../skills/workshop/skill-usage.js";
 import { pruneExpiredArtifactDownloads } from "./artifact-download-grants.js";
-import type { RestartRecoveryCandidate } from "./chat-abort.js";
 import { pruneStaleControlPlaneBuckets } from "./control-plane-rate-limit.js";
 import type { HealthSummary } from "./health/types.js";
 import {
@@ -109,7 +108,6 @@ export function startGatewayMaintenanceTimers(params: {
   refreshPresence: () => void;
   resetEventLoopHealth: () => void;
   dedupe: Map<string, DedupeEntry>;
-  restartRecoveryCandidates: Map<string, RestartRecoveryCandidate>;
   chatRunState: ChatRunState;
   removeChatRun: (
     sessionId: string,

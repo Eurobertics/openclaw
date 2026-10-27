@@ -53,7 +53,6 @@ import {
 import { prepareReplySourceAdmission } from "./reply-source-admission.js";
 import { admitReplyTurn } from "./reply-turn-admission.js";
 import type { createReplyTurnRotationEvidence } from "./reply-turn-rotation.js";
-import type { ReplyRestartRecoveryClaimController } from "./restart-recovery-claim.types.js";
 import { createReplySessionEntryHandle } from "./session-entry-handle.js";
 import type { TypingController } from "./typing.js";
 
@@ -86,7 +85,6 @@ export type AdmittedFollowupTurn = {
   preflightCompactionApplied: boolean;
   preflightFailurePayload?: ReplyPayload;
   preflightError?: Error;
-  restartRecovery?: ReplyRestartRecoveryClaimController;
   releaseSourceAdmission?: () => Promise<void>;
 };
 
@@ -106,7 +104,6 @@ type PrepareReplyAgentTurnParams<TConfigured> = {
   queued: FollowupRun;
   defaults: FollowupRunnerParams;
   kind?: ReplyTurnKind;
-  recoveryAdmissionRunId?: string;
   resetTriggered?: boolean;
   routeThreadId?: string | number;
   providedReplyOperation?: ReplyOperation;
@@ -185,7 +182,6 @@ export async function prepareReplyAgentTurn<TConfigured>(
         }
       : await admitReplyTurn({
           mailboxClaim,
-          recoveryAdmissionRunId: params.recoveryAdmissionRunId,
           rotationEvidence: params.rotationEvidence,
           runId: params.queued.controllerInput?.protocolRunId,
           onDatabaseRegistration: params.defaults.opts?.onDatabaseRegistration,

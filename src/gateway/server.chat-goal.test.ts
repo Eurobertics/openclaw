@@ -362,8 +362,6 @@ describe("Goal chat admission and continuation", () => {
         const acknowledgedEvents = await eventsAtAck;
         expect(entryAtAck, "fresh Goal commits its own local incarnation").toMatchObject({
           sessionId: expect.any(String),
-          restartRecoveryDeliveryRunId: request.idempotencyKey,
-          restartRecoveryDeliverySourceRunId: request.idempotencyKey,
           goal: { objective: request.message, status: "active" },
         });
         expect(entryAtAck?.status).toBeUndefined();
@@ -874,10 +872,9 @@ describe("Goal chat admission and continuation", () => {
       undefined,
       expect.anything(),
     );
-    expect(resumeEntryAtAck?.restartRecoveryOperatorSource).toMatchObject({
-      sourceRunId: request.operationId,
-      sessionId,
-      snapshot: { profileId: profile.id },
+    expect(resumeEntryAtAck?.goal).toMatchObject({
+      id: goal?.id,
+      status: "active",
     });
     await waitForModelRun(2);
     await waitForDispatchEnd();

@@ -240,7 +240,6 @@ it.for([
                 thinkingLevel: "off",
               }
             : {}),
-          // A channel route arms durable restart-recovery source claims.
           delivery: normalizeSessionDeliveryState({
             context: { channel: "telegram", to: "-100001", accountId: "readmission" },
           }),
@@ -542,11 +541,6 @@ it.for([
               : undefined,
           );
           if (scenario === "allow-control") {
-            const completed = expectDefined(
-              await readSessionEntryInWorker(scope),
-              "completed source",
-            );
-            expect(completed.restartRecoveryTerminalRunIds).toContain("exec:readmission-process");
             await fs.writeFile(filePath, "retained after completion\n");
             replay = enqueueSessionEventForHost("Background exec completed", {
               ...scope,
@@ -565,9 +559,6 @@ it.for([
             });
             expect(prompts).toHaveLength(2);
             expect(await fs.readFile(filePath, "utf8")).toBe("retained after completion\n");
-            expect((await readSessionEntryInWorker(scope))?.restartRecoveryTerminalRunIds).toEqual(
-              completed.restartRecoveryTerminalRunIds,
-            );
             expect(replay.cancel()).toBe(false);
           }
           // Settled either way: nothing is left for a later ordinary turn to drain.

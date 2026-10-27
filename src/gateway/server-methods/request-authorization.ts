@@ -26,7 +26,6 @@ import {
   listAgentDatabaseAdmissionRefusals,
   readAgentDatabaseAdmissionRefusal,
 } from "../../state/agent-database-admission.js";
-import type { InternalAgentTurnDispatchOptions } from "../agent-turn/internal-facade.types.js";
 import type { ExpectedProfileBinding } from "../expected-profile.js";
 import type { GatewayMethodRegistryView } from "../methods/descriptor.js";
 import {
@@ -58,7 +57,6 @@ import { resolveAgentIdOrRespondError } from "./agent-id-shared.js";
 import { gatewayRouterUploadPolicyError } from "./core-handlers.js";
 import { authorizeAuthenticatedProfileForMethod } from "./gateway-client-identity.js";
 import { authorizeGatewayMethod } from "./method-authorization.js";
-import { isGatewayRecoveryInput } from "./request-recovery-admission.js";
 import type {
   GatewayRequestContext,
   GatewayRequestOptions,
@@ -193,7 +191,6 @@ export async function authorizeGatewayRequestPreDispatch(params: {
   signal?: AbortSignal;
   assertInvocationCurrent?: () => void;
   assertPreparationCurrent?: () => void;
-  recoveryInput?: InternalAgentTurnDispatchOptions["recoveryInput"];
   controllerInput?: SessionControllerInput;
   markSessionSubscribePhase?: (phase: SessionSubscribePhase) => void;
   consumeSessionTurn?: {
@@ -239,11 +236,7 @@ export async function authorizeGatewayRequestPreDispatch(params: {
       details: { ...gatewayStartupUnavailableDetails(), method: params.method },
     });
   const startupError = () =>
-    params.context.unavailableGatewayMethods?.has(params.method) &&
-    !(
-      params.method === "chat.send" &&
-      isGatewayRecoveryInput(params, params.context.getRuntimeConfig())
-    )
+    params.context.unavailableGatewayMethods?.has(params.method)
       ? unavailableDuringStartup()
       : null;
   let assertChatRoutingCurrent: (() => void) | undefined;
@@ -337,17 +330,6 @@ export async function authorizeGatewayRequestPreDispatch(params: {
         }
         return { error };
       }
-    }
-    // Database refusals keep precedence, including the pending agent's retry contract.
-    if (
-      (params.method === "chat.send" || params.method === "agent") &&
-      params.context.inputRecovery &&
-      startupWriteAgents(params, params.context.getRuntimeConfig()).some((agentId) =>
-        params.context.inputRecovery!.isPending(agentId),
-      ) &&
-      !isGatewayRecoveryInput(params, params.context.getRuntimeConfig())
-    ) {
-      return { error: unavailableDuringStartup() };
     }
     const startup =
       startupReadMethods.has(params.method) &&

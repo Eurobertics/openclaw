@@ -13,6 +13,7 @@ import { getProcessSupervisor } from "../process/supervisor/index.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { wrapToolWithAbortSignal } from "./agent-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./agent-tools.before-tool-call.js";
+import { getSession, waitForExecSession } from "./bash-process-registry.js";
 import { resetProcessRegistryForTests } from "./bash-process-registry.test-support.js";
 import { createExecTool } from "./bash-tools.exec-run.js";
 import { createProcessTool } from "./bash-tools.process.js";
@@ -61,7 +62,9 @@ function tool(name: string, execute: AnyAgentTool["execute"]) {
 }
 
 async function runCodeModeAgent(params: {
-  programs: Array<RecoveryProgram | ((context: Context) => RecoveryProgram)>;
+  programs: Array<
+    RecoveryProgram | ((context: Context) => RecoveryProgram | Promise<RecoveryProgram>)
+  >;
   hiddenTools: AnyAgentTool[];
   execInput?: Record<string, unknown>;
   abortSignal?: AbortSignal;
@@ -84,10 +87,10 @@ async function runCodeModeAgent(params: {
     afterToolCall: async ({ result, isError }) => ({
       isError: isError || isToolResultError(result),
     }),
-    streamFn: (_activeModel, context) => {
+    streamFn: async (_activeModel, context) => {
       const index = requestIndex++;
       const program = params.programs[index];
-      const code = typeof program === "function" ? program(context) : program;
+      const code = typeof program === "function" ? await program(context) : program;
       const waiting = code !== undefined && typeof code !== "string";
       const message = makeAssistantMessage(
         code === undefined
@@ -187,7 +190,6 @@ describe("Code Mode agent-loop error recovery", () => {
       expect(await parked.promise).toMatchObject({
         status: "waiting",
         reason: "pending_tools",
-        replaySafe: false,
       });
       expect(read.tool.execute).toHaveBeenCalledOnce();
       expect(effects).toEqual([]);
@@ -217,7 +219,7 @@ describe("Code Mode agent-loop error recovery", () => {
     }
   });
 
-  it("recovers a wrong shell wait without relaunching", async ({ onTestFinished }) => {
+  it("recovers a wrong shell wait without relaunching", async ({ onTestFinished, signal }) => {
     const state = await createOpenClawTestState({ label: "wrong-wait-recovery" });
     const scopeKey = "agent-loop-wrong-wait";
     const closeScope = getProcessSupervisor().acquireScopeCleanup(scopeKey, {
@@ -228,7 +230,7 @@ describe("Code Mode agent-loop error recovery", () => {
       resetProcessRegistryForTests();
       await state.cleanup();
     });
-    const command = `${JSON.stringify(globalThis.process.execPath)} -e "process.stdout.write('same-process-recovered')"`;
+    const command = `${JSON.stringify(globalThis.process.execPath)} -e "process.stdin.once('data', () => { process.stdout.write('same-process-recovered'); process.stdin.destroy(); })"`;
     const shell = createExecTool({
       host: "gateway",
       security: "full",
@@ -255,11 +257,17 @@ describe("Code Mode agent-loop error recovery", () => {
           sessionId = nested.sessionId;
           return { wait: true, runId: sessionId };
         },
-        (context) => {
+        async (context) => {
           const failure = context.messages.at(-1);
           expect(failure).toMatchObject({ role: "toolResult", toolName: "wait", isError: true });
           expect(JSON.stringify(failure)).toContain("poll that same session with process");
-          return `return await process({ action: "poll", sessionId: ${JSON.stringify(sessionId)}, timeout: 1000 });`;
+          const session = sessionId ? getSession(sessionId) : undefined;
+          if (!session?.stdin) {
+            throw new Error("Expected the original held shell session");
+          }
+          session.stdin.write("finish\n");
+          await withinTest(waitForExecSession(session), signal);
+          return `return await process({ action: "poll", sessionId: ${JSON.stringify(sessionId)}, timeout: 0 });`;
         },
       ],
     });
