@@ -5,6 +5,13 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 
 const suite = createControlUiE2eSuite({ name: "Cached session state presentation" });
 
+type SessionStatePaint = {
+  archived: boolean;
+  readOnly: boolean;
+  parent: string | null;
+  height: number;
+};
+
 suite.define(() => {
   it.each(["archived", "read-only", "active", "deleted-parent"] as const)(
     "restores %s session presentation before reconnect and accepts changed live state",
@@ -84,9 +91,51 @@ suite.define(() => {
           await expect.poll(() => breadcrumb.count()).toBe(0);
           await flushSnapshot();
         }
+        await page.addInitScript(() => {
+          const frames: SessionStatePaint[] = [];
+          let active = true;
+          const sample = () => {
+            if (!active) {
+              return;
+            }
+            const pane = document.querySelector(".chat-pane-cache__pane--active");
+            const composer = pane?.querySelector(".agent-chat__composer-shell");
+            if (composer?.checkVisibility()) {
+              frames.push({
+                archived: Boolean(pane?.querySelector(".agent-chat__disabled-banner--replacement")),
+                readOnly:
+                  pane?.textContent?.includes(
+                    "Only the session owner and members can act in this session.",
+                  ) === true,
+                parent: pane?.querySelector(".chat-pane__parent-session")?.textContent ?? null,
+                height: composer.getBoundingClientRect().height,
+              });
+            }
+            requestAnimationFrame(sample);
+          };
+          Reflect.set(window, "cachedSessionStatePaints", () => {
+            active = false;
+            return frames;
+          });
+          requestAnimationFrame(sample);
+        });
         await page.reload();
         await gateway.waitForRequest("connect");
         await page.getByText(text, { exact: true }).waitFor();
+        // A final DOM assertion misses an earlier normal composer before cached rows.
+        const paints = await page.evaluate(async () => {
+          await new Promise(requestAnimationFrame);
+          return Reflect.get(window, "cachedSessionStatePaints")() as SessionStatePaint[];
+        });
+        expect(paints.length).toBeGreaterThan(0);
+        expect(paints.every((paint) => paint.archived === archived)).toBe(true);
+        expect(paints.every((paint) => paint.readOnly === (mode === "read-only"))).toBe(true);
+        expect(
+          paints.every((paint) =>
+            mode === "deleted-parent" ? paint.parent === null : paint.parent === parent.displayName,
+          ),
+        ).toBe(true);
+        expect(new Set(paints.map((paint) => paint.height)).size).toBe(1);
         expect(await unarchive.count()).toBe(archived ? 1 : 0);
         if (mode === "read-only") {
           expect(await pane.locator("textarea").isDisabled()).toBe(true);

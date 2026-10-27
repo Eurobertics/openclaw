@@ -404,7 +404,9 @@ export function cacheChatSessionSnapshot(
       ? { ...withBoard, composer: existing.snapshot.composer }
       : withBoard;
   const snapshot =
-    withComposer.sessionState === undefined && existing?.snapshot.sessionId === incoming.sessionId
+    withComposer.sessionState === undefined &&
+    existing?.snapshot.sessionState !== undefined &&
+    existing.snapshot.sessionId === incoming.sessionId
       ? { ...withComposer, sessionState: existing.snapshot.sessionState }
       : withComposer;
   const previousState = existing?.snapshot.sessionState;
