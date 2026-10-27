@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { setImmediate } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
-import { withTestTimeout } from "../../test/helpers/promise.js";
+import { withinTest } from "../../test/helpers/promise.js";
 import { CliPluginInvocationResources } from "../cli/plugin-invocation-resources.js";
 import {
   mocks,
@@ -26,38 +26,39 @@ describe("node runner shutdown", () => {
     vi.restoreAllMocks();
   });
 
-  it.each(["before entry", "during config read"])("honors CLI cancellation %s", async (stage) => {
-    mocks.useRealGatewayClient = false;
-    mocks.startGatewayClientWhenEventLoopReady.mockResolvedValue(mocks.readiness(true));
-    const previousExitCode = process.exitCode;
-    const on = vi.spyOn(process, "on");
-    const resources = new CliPluginInvocationResources();
-    const cancel = () =>
-      resources.beginClose(new DOMException("CLI stopping (SIGTERM)", "AbortError"));
-    if (stage === "during config read") {
-      mocks.loadNodeHostConfig.mockImplementationOnce(async () => {
-        cancel();
-        return null;
-      });
-    }
-    const running = resources.run(() => {
-      if (stage === "before entry") {
-        cancel();
+  it.for(["before entry", "during config read"])(
+    "honors CLI cancellation %s",
+    async (stage, { signal }) => {
+      mocks.useRealGatewayClient = false;
+      mocks.startGatewayClientWhenEventLoopReady.mockResolvedValue(mocks.readiness(true));
+      const previousExitCode = process.exitCode;
+      const on = vi.spyOn(process, "on");
+      const resources = new CliPluginInvocationResources();
+      const cancel = () =>
+        resources.beginClose(new DOMException("CLI stopping (SIGTERM)", "AbortError"));
+      if (stage === "during config read") {
+        mocks.loadNodeHostConfig.mockImplementationOnce(async () => {
+          cancel();
+          return null;
+        });
       }
-      return runNodeHost({ gatewayHost: "127.0.0.1", gatewayPort: 18789 });
-    });
-    try {
-      await expect(
-        withTestTimeout(running, 1_000, "CLI cancellation did not stop node"),
-      ).resolves.toBeUndefined();
-      expect(mocks.activeRuntime.close).toHaveBeenCalledTimes(stage === "before entry" ? 0 : 1);
-    } finally {
-      on.mock.calls.find(([event]) => event === "SIGTERM")?.[1]?.("SIGTERM");
-      await running;
-      await resources.release();
-      process.exitCode = previousExitCode;
-    }
-  });
+      const running = resources.run(() => {
+        if (stage === "before entry") {
+          cancel();
+        }
+        return runNodeHost({ gatewayHost: "127.0.0.1", gatewayPort: 18789 });
+      });
+      try {
+        await expect(withinTest(running, signal)).resolves.toBeUndefined();
+        expect(mocks.activeRuntime.close).toHaveBeenCalledTimes(stage === "before entry" ? 0 : 1);
+      } finally {
+        on.mock.calls.find(([event]) => event === "SIGTERM")?.[1]?.("SIGTERM");
+        await running;
+        await resources.release();
+        process.exitCode = previousExitCode;
+      }
+    },
+  );
 
   it("does not restart runtime cleanup when the stopped transport closes", async () => {
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
