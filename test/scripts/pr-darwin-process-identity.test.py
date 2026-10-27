@@ -186,7 +186,8 @@ class LockTests(unittest.TestCase):
         script.chmod(0o755)
         outside = self.root/'external-dependency'; outside.mkdir()
         (outside/'preserved').write_text('dependency bytes\n')
-        (anchor/'node_modules').symlink_to(outside, target_is_directory=True)
+        modules = anchor/'node_modules'; modules.mkdir()
+        (modules/'fixture-package').symlink_to(outside, target_is_directory=True)
         opened = anchor
         if handoff == 'foreign':
             opened = self.root/'foreign'; opened.mkdir(mode=0o700)
@@ -246,9 +247,9 @@ class LockTests(unittest.TestCase):
 
     def test_anchor_cleanup_after_clean_completion_preserves_dependency_target(self):
         p, anchor, outside = self.supervise_anchor('acquire_pr_operation_lock 42')
-        self.complete(p, 0)
+        output = self.complete(p, 0)
         self.assertFalse(self.exists())
-        self.assertFalse(anchor.exists())
+        self.assertFalse(anchor.exists(), output)
         self.assertEqual((outside/'preserved').read_text(), 'dependency bytes\n')
 
     def test_anchor_authority_not_inherited_by_operation(self):
@@ -256,23 +257,23 @@ class LockTests(unittest.TestCase):
             'acquire_pr_operation_lock 42\n'
             'test -z "${OPENCLAW_PR_ANCHOR_CREATOR_PID:-}${OPENCLAW_PR_ANCHOR_FD:-}"\n'
             'if { : <&9; } 2>/dev/null; then exit 8; fi')
-        self.complete(p, 0)
+        output = self.complete(p, 0)
         self.assertFalse(self.exists())
-        self.assertFalse(anchor.exists())
+        self.assertFalse(anchor.exists(), output)
 
     def test_anchor_cleanup_after_validation_failure(self):
         p, anchor, outside = self.supervise_anchor(
             'acquire_pr_operation_lock 42\nbegin_pr_operation_validation_phase\nexit 1')
-        self.complete(p, 1)
+        output = self.complete(p, 1)
         self.assertFalse(self.exists())
-        self.assertFalse(anchor.exists())
+        self.assertFalse(anchor.exists(), output)
         self.assertTrue((outside/'preserved').exists())
 
     def test_anchor_retired_after_drained_operation_failure(self):
         p, anchor, _ = self.supervise_anchor('acquire_pr_operation_lock 42\nexit 7')
-        self.complete(p, 7)
+        output = self.complete(p, 7)
         self.assertFalse(self.exists())
-        self.assertFalse(anchor.exists())
+        self.assertFalse(anchor.exists(), output)
 
     def test_anchor_retained_without_creation_authority(self):
         for handoff in ('missing', 'closed', 'wrong-pid', 'foreign'):
@@ -305,8 +306,8 @@ class LockTests(unittest.TestCase):
         while not ready.exists():
             self.assertIsNone(p.poll()); self.assertLess(time.monotonic(), deadline); time.sleep(.02)
         p.send_signal(signal.SIGTERM)
-        self.complete(p, 128+signal.SIGTERM)
-        self.assertFalse(anchor.exists())
+        output = self.complete(p, 128+signal.SIGTERM)
+        self.assertFalse(anchor.exists(), output)
         self.assertTrue(self.exists())
 
     @unittest.skipUnless(sys.platform == 'darwin', 'Darwin sandbox')

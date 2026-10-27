@@ -1572,11 +1572,12 @@ if (output) writeFileSync(1, output);
         `import * as fixtureFs from "node:fs";
 import * as fixturePath from "node:path";
 import { DatabaseSync as FixtureDatabase } from "node:sqlite";
-const fixtureLedger = fixturePath.join(fixturePath.dirname(process.argv[2]), "lifetime.sqlite");
+const fixtureEntry = fixturePath.dirname(process.argv[2]);
+const fixtureLedger = fixturePath.join(fixturePath.dirname(fixtureEntry), "lifetime.sqlite");
 let fixtureHolds = 0;
 if (fixtureFs.existsSync(fixtureLedger)) {
   const db = new FixtureDatabase(fixtureLedger, { readOnly: true });
-  try { fixtureHolds = db.prepare("SELECT count(*) AS count FROM holds WHERE entry_key = ?").get(fixturePath.basename(process.argv[2])).count; }
+  try { fixtureHolds = db.prepare("SELECT count(*) AS count FROM holds WHERE entry_key = ?").get(fixturePath.basename(fixtureEntry)).count; }
   finally { db.close(); }
 }
 fixtureFs.appendFileSync(${JSON.stringify(materializerCalls)}, JSON.stringify({ source: process.argv[2], destination: process.argv[3], holds: fixtureHolds }) + "\\n");
@@ -1652,6 +1653,7 @@ if (process.env.PR_TEST_INSTALL_GATE) {
     "keeps a live package reader after its bootstrap creator exits and newer installs collect",
     async ({ signal }) => {
       const fixture = makeFrozenDependencyFixture();
+      const env = { ...fixture.env, OPENCLAW_PR_GIT: resolveCommand("git") };
       const node = requireNodeTool("node");
       const sourceOnly = "cache-pressure.txt";
       const prepare = (index: number) => {
@@ -1724,7 +1726,7 @@ closeSync(fd);
         ],
         {
           cwd: fixture.canonical,
-          env: fixture.env,
+          env,
           stdio: ["ignore", "pipe", "pipe", "pipe"],
         },
       );
@@ -1784,7 +1786,7 @@ closeSync(fd);
             ],
             {
               cwd: fixture.canonical,
-              env: fixture.env,
+              env,
               encoding: "utf8",
             },
           );
