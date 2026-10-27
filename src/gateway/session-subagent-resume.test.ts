@@ -31,6 +31,7 @@ import {
   prepareParentSubagentResume,
   shouldResumeParentSubagent,
 } from "./session-subagent-resume.js";
+import { projectGatewaySessionRunState } from "./session-utils-display.js";
 
 const fixture = useSubagentControlFixture();
 beforeEach(() => {
@@ -146,6 +147,43 @@ it.each(["agent:main:subagent:resume-child"])(
     });
     expect(stored.has(previousRunId)).toBe(false);
     await expect(adopt()).rejects.toThrow(/paused/);
+  },
+);
+
+it.each(["resume", "cancel", "restart"] as const)(
+  "projects the paused child row until %s changes its task",
+  async (transition) => {
+    const state = await arrangePausedChild();
+    const project = () =>
+      projectGatewaySessionRunState({ key: state.childSessionKey, now: Date.now() });
+    const row = () => project().fields;
+    // Older clients keep the terminal status they render today.
+    expect(row()).toMatchObject({ status: "done", subagentRunState: "paused" });
+    if (transition === "resume") {
+      const adopt = await state.prepare();
+      await adopt();
+      // The row now follows the successor run, which carries no pause.
+      expect(project().subagentRun?.runId).toBe(nextRunId);
+      expect(row().subagentRunState).not.toBe("paused");
+    } else if (transition === "cancel") {
+      await killAllControlledSubagentRuns({
+        cfg: state.cfg,
+        controller: resolveSubagentController({
+          cfg: state.cfg,
+          agentId: state.caller.agentId,
+          agentSessionKey: state.caller.sessionKey,
+        }),
+        runs: [state.entry],
+        suppressTaskDelivery: true,
+      });
+      expect(row()).toMatchObject({ status: "killed", subagentRunState: "historical" });
+    } else {
+      // The pause is durable: a restarted Gateway can still continue the task.
+      subagentRuns.clear();
+      await restoreSubagentRunsFromDisk({ runs: subagentRuns });
+      await fixture.settle();
+      expect(row()).toMatchObject({ status: "done", subagentRunState: "paused" });
+    }
   },
 );
 
