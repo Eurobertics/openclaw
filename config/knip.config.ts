@@ -301,6 +301,7 @@ const repositoryScriptEntries = [
   "scripts/perf/cron-delivery-gateway-entry.ts!",
   "scripts/perf/plugin-policy-read-measure.mjs!",
   "scripts/perf/prompt-cache-observation-measure.ts!",
+  "scripts/perf/live-history-observation-measure.ts!",
   "scripts/perf/reconnect-read-wave-measure.ts!",
   "scripts/perf/session-actor-receipt-measure.ts!",
   "scripts/perf/session-actor-retention-measure.ts!",
@@ -608,6 +609,7 @@ const repositoryScriptEntries = [
   "scripts/perf/session-lifecycle-prepare-measure.ts!",
   "scripts/perf/session-replacement-write-measure.ts!",
   "scripts/perf/session-patch-label-owner-measure.ts!",
+  "scripts/perf/session-patch-result-measure.mjs!",
   "scripts/perf/session-event-audience-measure.ts!",
   "scripts/perf/transcript-snapshot-copy-measure.ts!",
   "scripts/perf/turn-start-phases.ts!",
@@ -1946,6 +1948,11 @@ const config = {
     "packages/net-policy": workspacePackage("net-policy"),
     "packages/markdown-core": workspacePackage("markdown-core"),
     "packages/media-core": workspacePackage("media-core"),
+    "packages/mermaid-renderer": {
+      // Vite selects the native adapter and classic compiler by file path, not imports.
+      entry: ["src/renderer.ts!", "src/native.ts!", "src/pele.min.ts!"],
+      project: ["src/**/*.ts!"],
+    },
     "packages/acp-core": workspacePackage("acp-core"),
     "packages/terminal-core": workspacePackage("terminal-core"),
     "packages/retry": workspacePackage("retry"),

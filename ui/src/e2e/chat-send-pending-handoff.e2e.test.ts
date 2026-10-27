@@ -402,6 +402,7 @@ suite.define(() => {
           agentModel: "openai/gpt-5.5",
           historyMessages: BASE_HISTORY,
           sessions: [{ key: "main", sessionId, label: "Synthetic PR landing" }],
+          // Reconnect refreshes can retire and reissue viewport-fill reads.
           heldRequests: [{ method: "chat.history", match: { offset: 80 } }],
         });
         const { runId } = await openChatAndSubmitProbe(page, gateway, {
@@ -486,8 +487,6 @@ suite.define(() => {
             { match: {}, response: latestPage },
           ],
         });
-        // Collapsed tool turns can trigger replacement older-page reads after
-        // the duplicate send ACK; keep every one held until the explicit release.
         await gateway.setMethodResponse("chat.send", { runId, status: "ok", messageSeq: 489 });
         await gateway.setOnline(true);
         const replay = await gateway.waitForRequest("chat.send", { after: 1 });
