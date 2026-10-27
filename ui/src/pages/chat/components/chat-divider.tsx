@@ -1,15 +1,25 @@
-import { lazy, Match, Show, Switch } from "solid-js";
+import { parseProviderModelRef } from "@openclaw/model-catalog-core/model-catalog-refs";
+import type { JSX } from "@solidjs/web";
+import { createMemo, For, lazy, Match, Show, Switch } from "solid-js";
+import type { ModelCatalogEntry } from "../../../api/types.ts";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { MarkdownHtml } from "../../../components/solid/markdown-html.tsx";
+import { ProviderBrandIcon } from "../../../components/solid/provider-icon.tsx";
 import type { ChatItem } from "../../../lib/chat/chat-types.ts";
+import {
+  buildQualifiedChatModelValue,
+  normalizeChatModelProviderId,
+} from "../../../lib/chat/model-ref.ts";
 import { formatTimeMs } from "../../../lib/format.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
+import { formatModelLabel } from "./chat-model-picker-options.ts";
 import type { ChatThreadProps } from "./chat-thread-interactions.ts";
 
 export type ChatNoticeProps = {
   item: Extract<ChatItem, { kind: "notice" }>;
   onPermissionRetry?: (message: string) => void;
+  modelCatalog?: ModelCatalogEntry[];
   recovery?: Pick<
     ChatThreadProps,
     "failureActionsRunId" | "runActive" | "runWorking" | "onRetryRun" | "onDismissPendingInput"
@@ -27,6 +37,7 @@ const ChatSkillLearnedNotice = lazy(() => import("./chat-skill-learned-notice.ts
 function SystemLine(props: {
   icon?: Extract<ChatItem, { kind: "divider" }>["icon"];
   label: string;
+  children?: JSX.Element;
   metric?: string;
   compaction?: "active" | "complete";
 }) {
@@ -60,7 +71,7 @@ function SystemLine(props: {
             <Icon name="check" />
           </span>
         </Show>
-        <span class="chat-divider__title">{props.label}</span>
+        <span class="chat-divider__title">{props.children ?? props.label}</span>
         <Show when={props.metric}>
           <span class="chat-divider__separator" aria-hidden="true">
             ·
@@ -134,6 +145,54 @@ function InlineNotice(props: ChatNoticeProps) {
   );
 }
 
+function NoticeModel(props: { value: string; catalog?: ModelCatalogEntry[] }) {
+  const reference = createMemo(() => parseProviderModelRef(props.value));
+  const provider = () => normalizeChatModelProviderId(reference()?.provider ?? "");
+  const name = createMemo(() => {
+    const entry = props.catalog?.find((candidate) => {
+      const ref = parseProviderModelRef(
+        buildQualifiedChatModelValue(candidate.id, candidate.provider),
+      );
+      return (
+        ref?.model === reference()?.model &&
+        normalizeChatModelProviderId(ref?.provider ?? "") === provider()
+      );
+    });
+    return formatModelLabel({
+      provider: provider(),
+      label: entry?.name.trim() || entry?.alias?.trim() || reference()?.model || props.value,
+    });
+  });
+  return (
+    <span class="chat-divider__model" title={props.value}>
+      <Show when={provider()}>
+        <ProviderBrandIcon provider={provider()} class="chat-divider__icon" />
+      </Show>
+      <bdi>{name()}</bdi>
+    </span>
+  );
+}
+
+function ModelChangeLabel(props: {
+  change: NonNullable<ChatNoticeProps["item"]["modelChange"]>;
+  catalog?: ModelCatalogEntry[];
+}) {
+  return (
+    <For each={t("chat.systemNotice.modelChanged").split(/(\{from\}|\{to\})/u)}>
+      {(part) =>
+        part === "{from}" || part === "{to}" ? (
+          <NoticeModel
+            value={part === "{from}" ? props.change.from : props.change.to}
+            catalog={props.catalog}
+          />
+        ) : (
+          part
+        )
+      }
+    </For>
+  );
+}
+
 function OrdinaryNotice(props: ChatNoticeProps) {
   return (
     <div
@@ -150,7 +209,11 @@ function OrdinaryNotice(props: ChatNoticeProps) {
           icon={props.item.icon}
           label={props.item.label!}
           metric={props.item.showTimestamp ? formatTimeMs(props.item.timestamp) : undefined}
-        />
+        >
+          <Show when={props.item.modelChange} fallback={props.item.label}>
+            {(change) => <ModelChangeLabel change={change()} catalog={props.modelCatalog} />}
+          </Show>
+        </SystemLine>
       </Show>
       <Show when={props.item.text}>
         <NoticeBody text={props.item.text} />
@@ -184,7 +247,15 @@ function OrdinaryNotice(props: ChatNoticeProps) {
 
 export function ChatNoticeDetails(props: ChatNoticeProps) {
   return (
-    <Switch fallback={<OrdinaryNotice item={props.item} recovery={props.recovery} />}>
+    <Switch
+      fallback={
+        <OrdinaryNotice
+          item={props.item}
+          recovery={props.recovery}
+          modelCatalog={props.modelCatalog}
+        />
+      }
+    >
       <Match when={props.item.permissionMissing}>
         <div data-chat-row-key={props.item.key} data-ts={String(props.item.timestamp)}>
           <ChatPermissionCard

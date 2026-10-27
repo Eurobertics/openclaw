@@ -157,9 +157,10 @@ suite.define(() => {
       ts: 3,
     });
     const noticeLine = page.locator(".chat-divider__title").filter({
-      hasText: "Model changed from openai/demo-a to openai/demo-b.",
+      hasText: "Model changed from Demo model A to Demo model B.",
     });
     await noticeLine.waitFor();
+    expect(await noticeLine.locator('[data-provider-icon="codex"]').count()).toBe(2);
     expect(
       await noticeLoading.evaluate(({ seen, observer }) => {
         observer.disconnect();

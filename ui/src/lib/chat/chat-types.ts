@@ -230,6 +230,7 @@ export type ChatItem =
       timestamp: number;
       icon?: IconName;
       label?: string;
+      modelChange?: { from: string; to: string };
       startsTurn?: true;
       boundaryId?: string;
       tone?: "danger";
