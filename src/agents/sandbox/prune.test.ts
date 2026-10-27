@@ -144,6 +144,24 @@ beforeEach(async () => {
 });
 
 describe("maybePruneSandboxes", () => {
+  it("keeps an expired browser while its workspace is in use", async () => {
+    const { acquireSandboxRuntimeUse } = await import("./registry-lifecycle.js");
+    const browser = { ...browserEntry(), workspaceDir: "/synthetic/managed-workspace" };
+    registryMocks.readRegistry.mockResolvedValue({ entries: [] });
+    registryMocks.readBrowserRegistry.mockResolvedValue({ entries: [browser] });
+    const cached = cacheBrowser();
+    const held = await acquireSandboxRuntimeUse({ workspaceDir: browser.workspaceDir });
+    try {
+      await maybePruneSandboxes(pruneConfig);
+      expectBrowserRetained(cached);
+    } finally {
+      held[Symbol.dispose]();
+    }
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6 * 60 * 1000);
+    await maybePruneSandboxes(pruneConfig);
+    expect(backendMocks.removeRuntime).toHaveBeenCalledOnce();
+  });
+
   it("reports orphan recovery failure and still removes the ordinary runtime and registry entry", async () => {
     persistentExecMocks.recoverSandboxPersistentExecOrphans.mockRejectedValueOnce(
       new Error("original Docker daemon unavailable"),
