@@ -116,12 +116,10 @@ export function createControlUiTeamScaleFixture(options: FixtureOptions = {}) {
   }
   const { sessions, pinnedRows, pinnedKeys, selectedSessionKey, sidebarPersistentChildren } =
     createTeamScaleSessionInventory({
+      ...options,
       now,
       people,
       counts,
-      offRosterSession: options.offRosterSession,
-      archivedSession: options.archivedSession,
-      sidebarPersistentChildren: options.sidebarPersistentChildren,
     });
   const duplicateReads = options.duplicateBootReads
     ? createTeamScaleDuplicateReadFixture(selectedSessionKey, now)
