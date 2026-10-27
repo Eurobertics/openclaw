@@ -81,7 +81,7 @@ it("keeps loading suggestions named, selected and actionable", () => {
 });
 
 it("keeps current editing state when suggestion rows load after dismissal", async () => {
-  const { menu, view } = mountSlashMenu("lazy-menu-dismissal");
+  const { menu, host, view } = mountSlashMenu("lazy-menu-dismissal");
   expect(view.getByRole("listbox")).toBeTruthy();
   expect(view.container.querySelectorAll(".slash-menu-item")).toHaveLength(
     menu.state.slashMenuItems.length,

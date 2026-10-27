@@ -146,7 +146,7 @@ export function openWorkspaceItem<T>(
       setSessionWorkspaceError(workspace, null);
       try {
         const resultPromise = readResult(controller.signal);
-        const [result, applyWorkspacePreview] = await Promise.all([
+        const [result, applyPreview] = await Promise.all([
           resultPromise,
           import("./chat-session-workspace-preview.runtime.ts").then(
             ({ applyWorkspacePreview }) => applyWorkspacePreview,
@@ -160,7 +160,7 @@ export function openWorkspaceItem<T>(
           return undefined;
         }
         if (isCurrent()) {
-          return applyWorkspacePreview({
+          return applyPreview({
             workspace,
             preview,
             read,

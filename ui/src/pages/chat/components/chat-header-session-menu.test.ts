@@ -9,7 +9,6 @@ import { profileDirectory } from "../../../lib/profile-directory.ts";
 import { createApplicationContextProvider } from "../../../test-helpers/application-context.ts";
 import { createSessionOwnerMenuHarness } from "../../../test-helpers/session-owner-menu.ts";
 import { waitForSolid } from "../../../test-helpers/solid-settle.ts";
-import { createGatewayBrowserClientFixture } from "../chat-application-context.test-support.ts";
 import type { HeaderMenuAction } from "../chat-pane-session-menu-contract.ts";
 import { createPaneHeaderWorkspaceFixture, createTestChatPane } from "../chat-pane.test-support.ts";
 import { createSessionCapabilityFixture } from "../chat-session-capability.test-support.ts";

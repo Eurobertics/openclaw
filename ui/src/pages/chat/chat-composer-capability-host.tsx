@@ -36,12 +36,12 @@ import { nextBooleanToolOverrides } from "../../lib/sessions/tool-overrides.ts";
 import { showToast } from "../../lib/toast.ts";
 import { refreshCurrentChatSessionList, type ChatModelSettingsHost } from "./chat-session.ts";
 import { patchChatSessionSettings } from "./chat-settings-patches.ts";
-import type { ChatComposerCapabilityMenuProps } from "./components/chat-composer-plus-menu.types.ts";
 import { ChatLazyBoundary } from "./components/chat-lazy-boundary.tsx";
 import {
   ComposerSkillCatalog,
   composerWebSearchBaseEnabled,
 } from "./composer-capability-catalog.ts";
+import type { ChatComposerCapabilityMenuProps } from "./composer-capability-types.ts";
 import { ComposerLibrarySession } from "./composer-library-session.ts";
 import { hasDirectSessionRun } from "./run-lifecycle.ts";
 

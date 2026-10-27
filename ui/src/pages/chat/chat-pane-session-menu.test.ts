@@ -233,6 +233,7 @@ describe("chat pane session menu boundary", () => {
       label: "Current conversation",
       sharingRole: "owner",
     };
+    state.sessionsResult = sessionsResult([session], 1);
     const container = document.body.appendChild(document.createElement("div"));
     let workspace = createPaneHeaderWorkspaceFixture(state);
     const draw = () => {
@@ -246,6 +247,7 @@ describe("chat pane session menu boundary", () => {
     const menu = container.querySelector("openclaw-chat-header-session-menu")!;
     await menu.updateComplete;
     expect(menu.openMenu()).toBe(true);
+    await vi.dynamicImportSettled();
     flush();
     await menu.updateComplete;
     const dropdown = menu.querySelector(".chat-header-session-menu__panel")!;
@@ -447,7 +449,7 @@ describe("chat pane session menu boundary", () => {
         1,
       ),
     };
-    const { pane, state } = createTestChatPane({
+    const { pane } = createTestChatPane({
       client: createGatewayBrowserClientFixture({
         request: (method) =>
           method === "agents.list"

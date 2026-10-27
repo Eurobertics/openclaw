@@ -365,7 +365,9 @@ describe.skipIf(typeof HTMLElement.prototype.checkVisibility !== "function")(
         // The surface opens before the lazy action list finishes loading.
         await expect
           .element(
-            page.elementLocator(menu).getByRole("menuitem", { name: "Terminal", exact: true }),
+            page
+              .getByRole("menu", { name: t("chat.sessionHeader.panels"), exact: true })
+              .getByRole("menuitem", { name: "Terminal", exact: true }),
           )
           .toBeVisible();
         // Measure the settled surface, not its opening scale transition.

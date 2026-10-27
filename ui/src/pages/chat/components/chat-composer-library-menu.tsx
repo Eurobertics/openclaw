@@ -2,6 +2,7 @@ import { Icon } from "../../../components/solid/icon.tsx";
 import type { MenuItem } from "../../../components/solid/menu.tsx";
 import { registerChatComposerMenuEnglish } from "../../../i18n/locales/en-chat-composer-menu.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
+import type { ChatComposerPlusMenuView } from "../composer-capability-types.ts";
 import type { ComposerLibraryProps } from "../composer-library-session.ts";
 import {
   menuChevron,
@@ -10,7 +11,6 @@ import {
   renderCapabilityMenuState,
   skillIcon,
 } from "./chat-composer-menu-rows.tsx";
-import type { ChatComposerPlusMenuView } from "./chat-composer-plus-menu.types.ts";
 
 registerEnglishCatalog(registerChatComposerMenuEnglish);
 
