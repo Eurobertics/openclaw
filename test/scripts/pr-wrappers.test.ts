@@ -27,6 +27,7 @@ import { writeFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
+  ANCHOR_PREFIX,
   collectUnusedDependencyCaches,
   withDependencyCacheLock,
 } from "../../scripts/pr-lib/cache-lifetime.mjs";
@@ -46,6 +47,9 @@ import {
 } from "./pr-review-artifact-fixture.js";
 import {
   copyPrWrapperSources,
+  createSettledPrCacheEntry,
+  prCacheEntries,
+  readPrCacheState,
   delegatingGitFixture,
   linkPrWrapperDependencies,
 } from "./pr-wrapper.test-support.js";
@@ -568,7 +572,7 @@ exit "$status"
     );
     expect(record.source).toBe(fixture.source);
     const activeWrapper = result.stdout.match(/^active workflow wrapper (.+)$/m)?.[1] ?? "";
-    expect(activeWrapper).toContain("openclaw-pr-anchor-v2.");
+    expect(activeWrapper).toContain("openclaw-pr-anchor-v3.");
     expect(existsSync(join(activeWrapper, ".."))).toBe(false);
   });
 
@@ -975,7 +979,7 @@ exit "$status"
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Bootstrap closure unavailable");
     expect(result.stderr).toContain("retaining");
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(1);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toHaveLength(1);
     expect(existsSync(marker)).toBe(false);
   });
 
@@ -992,7 +996,7 @@ exit "$status"
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Selected source overlaps the reserved bootstrap directory");
     expect(result.stderr).not.toContain("must not extract");
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(0);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toHaveLength(0);
   });
 
   itPosix("reauthenticates parent cleanup after a failed selected extraction", () => {
@@ -1009,7 +1013,7 @@ exit "$status"
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Bootstrap changed during selected extraction");
     expect(result.stderr).toContain("cannot be authenticated");
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(1);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toHaveLength(1);
     expect(existsSync(marker)).toBe(false);
   });
 
@@ -1082,7 +1086,7 @@ exit "$status"
     }
     expect(materialized.signal, materialized.stderr).toBe("SIGKILL");
     expect(materialized.stderr).toContain("running wrapper code materialized from");
-    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v3.");
     expect(anchors).toHaveLength(1);
     const anchor = join(fixture.root, anchors[0]!);
     expect(statSync(anchor).mode & 0o777).toBe(0o700);
@@ -1150,7 +1154,7 @@ if (tool === "git") {
     input = readFileSync(0);
     const paths = input.toString("utf8").trimEnd().split("\n");
     const bootstrap = paths.every(path => path.includes("/.pr-bootstrap/"));
-    const selected = paths.every(path => /\/openclaw-pr-anchor-v2\.[^/]+\//.test(path) && !path.includes("/.pr-bootstrap/"));
+    const selected = paths.every(path => /\/openclaw-pr-anchor-v3\.[^/]+\//.test(path) && !path.includes("/.pr-bootstrap/"));
     targeted = phase === "bootstrap" ? bootstrap : selected;
   }
 } else {
@@ -1274,7 +1278,7 @@ if (output) writeFileSync(1, output);
     parkCanonicalOffAnchor(fixture);
     let { anchor } = materializeAnchor(fixture);
     if (legacy) {
-      const retained = anchor.replace("openclaw-pr-anchor-v2.", "openclaw-pr-anchor.");
+      const retained = anchor.replace("openclaw-pr-anchor-v3.", "openclaw-pr-anchor.");
       renameSync(anchor, retained);
       anchor = retained;
     }
@@ -1567,8 +1571,15 @@ if (output) writeFileSync(1, output);
         helper,
         `import * as fixtureFs from "node:fs";
 import * as fixturePath from "node:path";
-const fixtureHolds = fixturePath.join(fixturePath.dirname(process.argv[2]), ".pr-holds");
-fixtureFs.appendFileSync(${JSON.stringify(materializerCalls)}, JSON.stringify({ source: process.argv[2], destination: process.argv[3], holds: fixtureFs.existsSync(fixtureHolds) ? fixtureFs.readdirSync(fixtureHolds).length : 0 }) + "\\n");
+import { DatabaseSync as FixtureDatabase } from "node:sqlite";
+const fixtureLedger = fixturePath.join(fixturePath.dirname(process.argv[2]), "lifetime.sqlite");
+let fixtureHolds = 0;
+if (fixtureFs.existsSync(fixtureLedger)) {
+  const db = new FixtureDatabase(fixtureLedger, { readOnly: true });
+  try { fixtureHolds = db.prepare("SELECT count(*) AS count FROM holds WHERE entry_key = ?").get(fixturePath.basename(process.argv[2])).count; }
+  finally { db.close(); }
+}
+fixtureFs.appendFileSync(${JSON.stringify(materializerCalls)}, JSON.stringify({ source: process.argv[2], destination: process.argv[3], holds: fixtureHolds }) + "\\n");
 ${source}`,
       );
     }
@@ -1626,18 +1637,188 @@ if (process.env.PR_TEST_INSTALL_GATE) {
   }
 
   function privateToolingDonor(fixture: ReturnType<typeof makeFrozenDependencyFixture>) {
-    const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
+    const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v3");
     const donorEntry = join(cache, "a".repeat(64));
-    mkdirSync(donorEntry, { recursive: true, mode: 0o700 });
-    for (const name of [".pr-complete", ".pr-holds", ".pr-settled"]) {
-      mkdirSync(join(donorEntry, name), { mode: 0o700 });
-    }
+    withDependencyCacheLock(cache, () => {});
+    mkdirSync(donorEntry, { mode: 0o700 });
     renameSync(join(fixture.tooling, "node_modules"), join(donorEntry, "node_modules"));
     rmSync(join(donorEntry, "node_modules/tsx"));
     symlinkSync(fixture.expected, join(donorEntry, "node_modules/tsx"), "dir");
     symlinkSync(join(donorEntry, "node_modules"), join(fixture.tooling, "node_modules"), "dir");
     return donorEntry;
   }
+
+  itPosix(
+    "keeps a live package reader after its bootstrap creator exits and newer installs collect",
+    async ({ signal }) => {
+      const fixture = makeFrozenDependencyFixture();
+      const node = requireNodeTool("node");
+      const sourceOnly = "cache-pressure.txt";
+      const prepare = (index: number) => {
+        fixture.git(fixture.canonical, ["checkout", "main"]);
+        fixture.write(sourceOnly, String(index));
+        fixture.commit([sourceOnly], true);
+        const revision = fixture.gitText(["rev-parse", "HEAD"]);
+        expect(fixture.gitText(["rev-parse", "refs/remotes/origin/main"])).toBe(revision);
+        const archive = join(fixture.root, `creator-${index}.tar`);
+        fixture.git(fixture.canonical, [
+          "archive",
+          "--format=tar",
+          `--output=${archive}`,
+          revision,
+        ]);
+        return { archive, revision };
+      };
+      // This is the actual embedded producer and selected helper. The creator,
+      // not Vitest, owns FD9; its package reader deliberately survives that PID.
+      const creatorSource = `
+import { closeSync, mkdtempSync, openSync, readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+const [root, archive, revision, retain, prefix] = process.argv.slice(1);
+const anchor = realpathSync(mkdtempSync(join(root, prefix + process.pid + ".")));
+const extract = spawnSync("tar", ["-xf", archive, "-C", anchor], { encoding: "utf8" });
+if (extract.status !== 0) throw new Error(extract.stderr);
+const fd = openSync(anchor, "r");
+const stdio = ["pipe", "pipe", "pipe", "ignore", "ignore", "ignore", "ignore", "ignore", "ignore", fd];
+const owner = join(anchor, "scripts/pr-lib/materialize-dependencies.mjs");
+const bootstrap = readFileSync(join(anchor, "scripts/pr"), "utf8").split("<<'EOF_TOOLING'\\n")[1].split("\\nEOF_TOOLING")[0];
+const installed = spawnSync(process.execPath, ["--input-type=module", "-", owner, process.cwd(), join(anchor, "node_modules"), revision, join(anchor, "scripts/pr-lib/cache-lifetime.mjs")], { input: bootstrap, encoding: "utf8", stdio });
+if (installed.status !== 0) throw new Error(installed.stderr);
+const receiptPrefix = "Using frozen scripts/pr dependency installation: ";
+const installation = installed.stderr.split(String.fromCharCode(10)).find(line => line.startsWith(receiptPrefix))?.slice(receiptPrefix.length);
+if (!installation) throw new Error("Actual frozen installation receipt is missing");
+if (retain === "yes") {
+  const reader = spawn(process.execPath, ["--input-type=module", "-e", ${JSON.stringify(`
+import { readFileSync, readSync } from "node:fs";
+const path = process.argv[1];
+console.log("cache-reader=" + JSON.stringify({ event: "ready", pid: process.pid, path }));
+const command = Buffer.alloc(1);
+while (readSync(0, command, 0, 1, null) > 0) {
+  if (command.toString() === "q") break;
+  if (command.toString() === "r") {
+    console.log("cache-reader=" + JSON.stringify({ event: "read", value: readFileSync(path, "utf8") }));
+  }
+}
+`)}, join(anchor, "node_modules/micromark/package.json")], { stdio: [3, 1, 2] });
+  reader.unref();
+} else {
+  const retired = spawnSync(process.execPath, [join(anchor, "scripts/pr-lib/materialized-anchor.mjs"), "retire-created", anchor], { encoding: "utf8", stdio });
+  if (retired.status !== 0) throw new Error(retired.stderr);
+  console.log(JSON.stringify({ anchor, installation }));
+}
+closeSync(fd);
+`;
+      const first = prepare(0);
+      const creator = spawn(
+        node,
+        [
+          "--input-type=module",
+          "-e",
+          creatorSource,
+          fixture.root,
+          first.archive,
+          first.revision,
+          "yes",
+          ANCHOR_PREFIX,
+        ],
+        {
+          cwd: fixture.canonical,
+          env: fixture.env,
+          stdio: ["ignore", "pipe", "pipe", "pipe"],
+        },
+      );
+      const exited = once(creator, "exit");
+      const closed = once(creator, "close");
+      const control = creator.stdio[3];
+      if (!control || !("write" in control) || !creator.stdout || !creator.stderr) {
+        throw new Error("Creator fixture pipes were not created");
+      }
+      const ready = createDeferred<{ pid: number; path: string }>();
+      const read = createDeferred<string>();
+      let output = "",
+        errors = "";
+      creator.stderr.on("data", (data) => {
+        errors += data;
+      });
+      creator.stdout.on("data", (data) => {
+        output += data;
+        let newline;
+        while ((newline = output.indexOf("\n")) >= 0) {
+          const line = output.slice(0, newline);
+          output = output.slice(newline + 1);
+          if (!line.startsWith("cache-reader=")) {
+            continue;
+          }
+          const value = JSON.parse(line.slice("cache-reader=".length));
+          if (value.event === "ready") {
+            ready.resolve(value);
+          }
+          if (value.event === "read") {
+            read.resolve(value.value);
+          }
+        }
+      });
+      try {
+        const reader = await withinTest(
+          awaitGateBeforeSettlement(ready.promise, closed, "Package reader did not start"),
+          signal,
+        );
+        expect((await withinTest(exited, signal))[0], errors).toBe(0);
+        expect(() => process.kill(reader.pid, 0)).not.toThrow();
+        const original = readScript(reader.path);
+        const pressureEntries = new Set<string>();
+        for (let index = 1; index <= 5; index++) {
+          const next = prepare(index);
+          const result = spawnSync(
+            node,
+            [
+              "--input-type=module",
+              "-e",
+              creatorSource,
+              fixture.root,
+              next.archive,
+              next.revision,
+              "no",
+              ANCHOR_PREFIX,
+            ],
+            {
+              cwd: fixture.canonical,
+              env: fixture.env,
+              encoding: "utf8",
+            },
+          );
+          expect(result.status, result.stderr).toBe(0);
+          const retired = JSON.parse(result.stdout);
+          expect(existsSync(retired.anchor)).toBe(false);
+          expect(existsSync(retired.installation)).toBe(true);
+          expect(readPrCacheState(retired.installation)).toEqual({
+            registered: true,
+            settled: true,
+            anchors: [],
+          });
+          pressureEntries.add(retired.installation);
+        }
+        expect(pressureEntries.size).toBe(5);
+        expect(jsonLines(fixture.calls)).toHaveLength(6);
+        expect(() => process.kill(reader.pid, 0)).not.toThrow();
+        control.write("r");
+        expect(
+          await withinTest(
+            awaitGateBeforeSettlement(
+              read.promise,
+              closed,
+              "Live package reader lost its projection",
+            ),
+            signal,
+          ),
+        ).toBe(original);
+      } finally {
+        control.end("q");
+        await closed;
+      }
+    },
+  );
 
   itPosix(
     "materializes and reuses an older anchor without changing the installed tooling root",
@@ -1651,8 +1832,8 @@ if (process.env.PR_TEST_INSTALL_GATE) {
         expect(result.stderr).toContain("running wrapper code materialized from");
       }
       expect(jsonLines(calls)).toHaveLength(1);
-      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
-      const entry = readdirSync(cache)[0]!;
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v3");
+      const entry = prCacheEntries(cache)[0]!;
       expect(realpathSync(join(cache, entry, "node_modules/tsx"))).toBe(fixture.expected);
       expect(existsSync(join(cache, entry, "packages/markdown-core/package.json"))).toBe(true);
       expect(
@@ -1740,7 +1921,7 @@ if (process.env.PR_TEST_INSTALL_GATE) {
       };
       const materialize = (revision: string) => {
         const anchor = realpathSync(
-          mkdtempSync(join(fixture.root, `openclaw-pr-anchor-v2.${process.pid}.`)),
+          mkdtempSync(join(fixture.root, `openclaw-pr-anchor-v3.${process.pid}.`)),
         );
         const archive = join(fixture.root, "shared-source.tar");
         fixture.git(fixture.canonical, [
@@ -1781,8 +1962,8 @@ if (process.env.PR_TEST_INSTALL_GATE) {
       };
       const firstRevision = fixture.gitText(["rev-parse", "HEAD"]);
       const first = materialize(firstRevision);
-      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
-      const entries = readdirSync(cache);
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v3");
+      const entries = prCacheEntries(cache);
       expect(entries).toHaveLength(1);
       const installation = realpathSync(join(cache, entries[0]!));
       fixture.write(sourceOnly, "second source revision\n");
@@ -1799,14 +1980,10 @@ if (process.env.PR_TEST_INSTALL_GATE) {
         );
       }
       const second = materialize(secondRevision);
-      expect(readdirSync(cache)).toEqual(entries);
+      expect(prCacheEntries(cache)).toEqual(entries);
       expect(jsonLines(fixture.calls)).toHaveLength(1);
       expect(readScript(guard.calls)).toContain("install-child --version\n");
-      const holds = join(installation, ".pr-holds");
-      const consumers = () =>
-        readdirSync(holds)
-          .map((name) => readlinkSync(join(holds, name)))
-          .toSorted();
+      const consumers = () => readPrCacheState(installation).anchors;
       expect(consumers()).toEqual([first, second].toSorted());
       const usableProjection = (anchor: string) => {
         const projected = join(anchor, "node_modules/micromark");
@@ -1819,7 +1996,7 @@ if (process.env.PR_TEST_INSTALL_GATE) {
         expect(JSON.parse(readScript(join(projected, "package.json"))).version).toBe(
           manifest.dependencies.micromark,
         );
-        expect(readdirSync(join(anchor, ".pr-cache-holds"))).toHaveLength(1);
+        expect(consumers()).toContain(anchor);
       };
       usableProjection(first);
       usableProjection(second);
@@ -1835,15 +2012,11 @@ if (process.env.PR_TEST_INSTALL_GATE) {
       utimesSync(installation, new Date(0), new Date(0));
       retire(first);
       expect(consumers()).toEqual([second]);
-      expect(existsSync(join(installation, ".pr-settled"))).toBe(false);
+      expect(readPrCacheState(installation).settled).toBe(false);
       // Pressure entries are already settled fixture installations. The shared
       // entry and both of its holds above came only from the real bootstrap.
       for (let index = 0; index < 5; index++) {
-        const entry = join(cache, String(index).repeat(64));
-        mkdirSync(entry, { mode: 0o700 });
-        for (const name of [".pr-complete", ".pr-holds", ".pr-settled"]) {
-          mkdirSync(join(entry, name), { mode: 0o700 });
-        }
+        createSettledPrCacheEntry(cache, String(index).repeat(64));
       }
       const sweep = () => {
         const retired = withDependencyCacheLock(cache, (lock) =>
@@ -1858,7 +2031,7 @@ if (process.env.PR_TEST_INSTALL_GATE) {
       expect(consumers()).toEqual([second]);
       retire(second);
       expect(consumers()).toEqual([]);
-      expect(existsSync(join(installation, ".pr-settled"))).toBe(true);
+      expect(readPrCacheState(installation).settled).toBe(true);
       sweep();
       expect(existsSync(installation)).toBe(false);
       expect(jsonLines(fixture.calls)).toHaveLength(1);
@@ -1924,8 +2097,8 @@ if (process.env.PR_TEST_INSTALL_GATE) {
     expect(projected.length).toBeGreaterThan(0);
     expect(projected.every((call) => call.holds > 0)).toBe(true);
     expect(existsSync(marker)).toBe(false);
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
-    expect(readdirSync(join(donorEntry, ".pr-holds"))).toEqual([]);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
+    expect(readPrCacheState(donorEntry).anchors).toEqual([]);
   });
 
   itPosix.each([false, true])(
@@ -1938,7 +2111,7 @@ test -z "\${OPENCLAW_PR_ANCHOR_CREATOR_PID:-}\${OPENCLAW_PR_ANCHOR_FD:-}" || ret
 if { : <&9; } 2>/dev/null; then return 8; fi
 test "\${OPENCLAW_PR_LOCK_SUPERVISOR_PID:-}" = "$PPID" || return
 node --input-type=module - "$script_parent_dir/../node_modules" <<'EOF_HELD_PROJECTION'
-import { readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 const modules = realpathSync(process.argv[2]);
@@ -1947,8 +2120,10 @@ const yaml = require("yaml");
 const packagePath = realpathSync(join(modules, "yaml"));
 const entry = dirname(dirname(packagePath));
 const anchor = dirname(modules);
-const holds = join(entry, ".pr-holds");
-const matchingHolds = readdirSync(holds).filter((name) => readlinkSync(join(holds, name)) === anchor);
+const { DatabaseSync } = require("node:sqlite");
+const db = new DatabaseSync(join(dirname(entry), "lifetime.sqlite"), { readOnly: true });
+const matchingHolds = db.prepare("SELECT anchor_path FROM holds WHERE entry_key = ? AND anchor_path = ?").all(require("node:path").basename(entry), anchor);
+db.close();
 console.log("supervised-projection=" + JSON.stringify({ anchor, entry, matchingHolds: matchingHolds.length, usable: yaml.parse("held: true").held }));
 EOF_HELD_PROJECTION
 `,
@@ -1974,10 +2149,10 @@ EOF_HELD_PROJECTION
       expect(receipt.entry).not.toBe(donorEntry);
       expect(jsonLines(fixture.calls)).toHaveLength(1);
       expect(existsSync(receipt.anchor)).toBe(false);
-      expect(readdirSync(join(receipt.entry, ".pr-holds"))).toEqual([]);
-      expect(existsSync(join(receipt.entry, ".pr-settled"))).toBe(true);
-      expect(readdirSync(join(donorEntry, ".pr-holds"))).toEqual([]);
-      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+      expect(readPrCacheState(receipt.entry).anchors).toEqual([]);
+      expect(readPrCacheState(receipt.entry).settled).toBe(true);
+      expect(readPrCacheState(donorEntry).anchors).toEqual([]);
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
       expect(
         fixture.gitText([
           "for-each-ref",
@@ -2004,14 +2179,14 @@ EOF_HELD_PROJECTION
         });
         expect(result.status, result.stdout + result.stderr).toBe(2);
         expect(result.stderr).toContain("running wrapper code materialized from");
-        expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+        expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
       }
       expect(jsonLines(fixture.calls)).toHaveLength(1);
-      const cache = join(cacheOwner, "openclaw/pr-dependencies/v2");
-      const entries = readdirSync(cache);
+      const cache = join(cacheOwner, "openclaw/pr-dependencies/v3");
+      const entries = prCacheEntries(cache);
       expect(entries).toHaveLength(1);
-      expect(readdirSync(join(cache, entries[0]!, ".pr-holds"))).toEqual([]);
-      expect(existsSync(join(cache, entries[0]!, ".pr-settled"))).toBe(true);
+      expect(readPrCacheState(join(cache, entries[0]!)).anchors).toEqual([]);
+      expect(readPrCacheState(join(cache, entries[0]!)).settled).toBe(true);
     },
   );
 
@@ -2052,15 +2227,18 @@ EOF_HELD_PROJECTION
         expect(code, creator.errors()).toBe(2);
         expect(creator.errors()).toContain("running wrapper code materialized from");
       }
-      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
-      expect(readdirSync(cache)).toHaveLength(1);
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v3");
+      expect(prCacheEntries(cache)).toHaveLength(1);
+      expect(readdirSync(cache).toSorted()).toEqual(
+        ["lifetime.sqlite", ...prCacheEntries(cache)].toSorted(),
+      );
       expect(jsonLines(fixture.calls)).toHaveLength(2);
-      expect(realpathSync(join(cache, readdirSync(cache)[0]!, "node_modules/tsx"))).toBe(
+      expect(realpathSync(join(cache, prCacheEntries(cache)[0]!, "node_modules/tsx"))).toBe(
         fixture.expected,
       );
-      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
-      expect(readdirSync(join(cache, readdirSync(cache)[0]!, ".pr-holds"))).toEqual([]);
-      expect(existsSync(join(cache, readdirSync(cache)[0]!, ".pr-settled"))).toBe(true);
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
+      expect(readPrCacheState(join(cache, prCacheEntries(cache)[0]!)).anchors).toEqual([]);
+      expect(readPrCacheState(join(cache, prCacheEntries(cache)[0]!)).settled).toBe(true);
       // A later real consumer also reuses the published entry without an install,
       // holds its projection, then retires its own anchor canonically.
       const previousCalls = existsSync(fixture.materializerCalls)
@@ -2070,7 +2248,10 @@ EOF_HELD_PROJECTION
       expect(consumer.status, consumer.stdout + consumer.stderr).toBe(2);
       expect(consumer.stderr).toContain("running wrapper code materialized from");
       expect(jsonLines(fixture.calls)).toHaveLength(2);
-      expect(readdirSync(cache)).toHaveLength(1);
+      expect(prCacheEntries(cache)).toHaveLength(1);
+      expect(readdirSync(cache).toSorted()).toEqual(
+        ["lifetime.sqlite", ...prCacheEntries(cache)].toSorted(),
+      );
       const projections = jsonLines(fixture.materializerCalls)
         .slice(previousCalls)
         .filter(
@@ -2083,8 +2264,7 @@ EOF_HELD_PROJECTION
         expect(call.holds).toBeGreaterThan(0);
         const anchor = join(call.destination, "..");
         expect(existsSync(anchor)).toBe(false);
-        const holds = join(cache, readdirSync(cache)[0]!, ".pr-holds");
-        expect(readdirSync(holds).map((name) => readlinkSync(join(holds, name)))).not.toContain(
+        expect(readPrCacheState(join(cache, prCacheEntries(cache)[0]!)).anchors).not.toContain(
           anchor,
         );
       }
@@ -2215,7 +2395,7 @@ echo "canonical wrapper executed";`,
       "running wrapper code materialized from the refs/remotes/origin/main trust anchor",
     );
     expect(result.stderr).not.toContain("Refusing to silently substitute");
-    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v3.");
     expect(anchors).toHaveLength(0);
   });
 
@@ -2291,7 +2471,7 @@ if (process.env.PR_TEST_INTERRUPT !== "1") process.exit(Number(process.env.PR_TE
       if (args[0] === "ci-dispatch") {
         expect(readScript(started)).toBe("operation started\n");
       }
-      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
     },
   );
 
@@ -2306,7 +2486,7 @@ if (process.env.PR_TEST_INTERRUPT !== "1") process.exit(Number(process.env.PR_TE
       env: { ...fixture.env, PR_TEST_REAL_TAR: resolveCommand("tar") },
     });
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
     expect(result.stderr).toContain("Unable to execute the materialized scripts/pr wrapper.");
   });
 
@@ -2368,7 +2548,7 @@ fi
       ).toBe("differing wrapper components vs origin/main: scripts/pr-lib");
       expect(existsSync(fault.readerLog)).toBe(failure !== "producer failure");
     }
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v3.")).toEqual([]);
   });
 
   itPosix.each([
@@ -2420,7 +2600,7 @@ throw new Error("untrusted caller helper executed");
         ],
       },
     ]);
-    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v3.");
     expect(anchors).toHaveLength(1);
     const anchor = join(fixture.root, anchors[0]!);
     expect(lstatSync(anchor).isDirectory()).toBe(true);
@@ -2622,7 +2802,7 @@ node "$script_parent_dir/verify-pr-hosted-gates.mjs" --anchor-proof;`,
       expect(existsSync(ghCalled)).toBe(false);
       expect(existsSync(linkedModules)).toBe(false);
       expect(result.stderr).not.toContain("dev-wrapper opt-in");
-      const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
+      const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v3.");
       expect(anchors).toHaveLength(0);
       const dependencyProof = result.stdout
         .split("\n")

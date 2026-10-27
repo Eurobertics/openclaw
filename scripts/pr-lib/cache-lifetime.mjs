@@ -1,24 +1,24 @@
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  closeSync,
+  constants,
   fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
-  readlinkSync,
   realpathSync,
   renameSync,
   rmdirSync,
-  symlinkSync,
-  unlinkSync,
-  utimesSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 // Older frozen collectors recognize neither namespace. Their PID-only policy
 // cannot safely collect an operation whose supervisor exited before its children.
-export const ANCHOR_PREFIX = "openclaw-pr-anchor-v2.";
+export const ANCHOR_PREFIX = "openclaw-pr-anchor-v3.";
 export const dependencyCacheRoot = () => {
   let path = join(realpathSync(homedir()), ".cache/openclaw/pr-dependencies");
   const missing = [];
@@ -26,7 +26,7 @@ export const dependencyCacheRoot = () => {
     missing.unshift(basename(path));
     path = dirname(path);
   }
-  const cache = join(realpathSync(path), ...missing, "v2");
+  const cache = join(realpathSync(path), ...missing, "v3");
   const present = lstatSync(cache, { throwIfNoEntry: false });
   // Ancestor aliases are supported, but aliasing the namespace itself would
   // rebase legacy-cache recognition and let an unheld donor look external.
@@ -68,10 +68,259 @@ function assertAnchor(anchor) {
   }
 }
 
-// Only short metadata transitions hold this mutex. A crashed owner deliberately
-// leaves contention; neither PID death nor a timeout grants lock-stealing rights.
+// This owner runs before selecting/installing package dependencies. Kysely here
+// would create a bootstrap cycle; use only node:sqlite's synchronous primitives.
+const ledgers = new WeakMap();
+const ledgerName = "lifetime.sqlite";
+const identityKeys = ["dev", "ino", "uid", "mode"];
+const identityValues = (stat) => identityKeys.map((key) => String(stat[key]));
+const rowMatches = (row, prefix, stat) =>
+  identityKeys.every((key) => row[`${prefix}${key}`] === String(stat[key]));
+
+function physicalFile(path) {
+  const stat = lstatSync(path, { bigint: true });
+  if (
+    !stat.isFile() ||
+    stat.uid !== BigInt(process.getuid()) ||
+    (stat.mode & 0o7777n) !== 0o600n ||
+    stat.nlink !== 1n ||
+    realpathSync(path) !== resolve(path)
+  ) {
+    throw new Error(`Unsafe PR dependency ledger file: ${path}`);
+  }
+  return stat;
+}
+
+function assertLedgerFiles(cache, identity, path, file, fd) {
+  if (
+    !same(directory(cache), identity) ||
+    !same(physicalFile(path), file) ||
+    !same(fstatSync(fd, { bigint: true }), file)
+  ) {
+    throw new Error("PR dependency ledger identity changed; retain installations");
+  }
+  for (const name of readdirSync(cache).filter((name) => name.startsWith(`${ledgerName}-`))) {
+    if (name !== `${ledgerName}-journal`) {
+      throw new Error(`Unknown PR dependency ledger auxiliary file: ${name}`);
+    }
+    physicalFile(join(cache, name));
+  }
+}
+
+function transaction(context, operation, initialize = false) {
+  const { db } = context;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (!initialize) {
+      assertLedgerOwner(context);
+    }
+    const result = operation();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (rollback) {
+      throw new Error("PR dependency ledger rollback failed; retain installations", {
+        cause: new AggregateError([error, rollback]),
+      });
+    }
+    throw error;
+  }
+}
+
+function openLedger(cache, cacheIdentity, create, readOnly) {
+  const path = join(cache, ledgerName);
+  const fd = openSync(
+    path,
+    (create ? constants.O_RDWR | constants.O_CREAT | constants.O_EXCL : constants.O_RDONLY) |
+      constants.O_NOFOLLOW,
+    0o600,
+  );
+  let db;
+  try {
+    const file = physicalFile(path);
+    assertLedgerFiles(cache, cacheIdentity, path, file, fd);
+    db = new DatabaseSync(path, { timeout: 0, allowExtension: false, readOnly });
+    assertLedgerFiles(cache, cacheIdentity, path, file, fd);
+    if (create) {
+      db.exec("PRAGMA journal_mode=DELETE");
+    }
+    if (db.prepare("PRAGMA journal_mode").get().journal_mode !== "delete") {
+      throw new Error("PR dependency ledger requires DELETE journaling");
+    }
+    db.exec("PRAGMA synchronous=EXTRA");
+    if (db.prepare("PRAGMA synchronous").get().synchronous !== 3) {
+      throw new Error("PR dependency ledger requires EXTRA synchronization");
+    }
+    const context = { cache, cacheIdentity, path, file, fd, db };
+    if (create) {
+      transaction(
+        context,
+        () => {
+          db.exec(`
+          CREATE TABLE owner (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            cache_dev TEXT NOT NULL, cache_ino TEXT NOT NULL,
+            cache_uid TEXT NOT NULL, cache_mode TEXT NOT NULL,
+            db_dev TEXT NOT NULL, db_ino TEXT NOT NULL,
+            db_uid TEXT NOT NULL, db_mode TEXT NOT NULL,
+            sequence INTEGER NOT NULL DEFAULT 0
+          ) STRICT;
+          CREATE TABLE installations (
+            key TEXT PRIMARY KEY,
+            dev TEXT NOT NULL, ino TEXT NOT NULL, uid TEXT NOT NULL, mode TEXT NOT NULL,
+            settled INTEGER NOT NULL CHECK (settled IN (0, 1)),
+            last_used INTEGER NOT NULL
+          ) STRICT;
+          CREATE TABLE holds (
+            entry_key TEXT NOT NULL REFERENCES installations(key),
+            anchor_path TEXT NOT NULL, anchor_dev TEXT NOT NULL, anchor_ino TEXT NOT NULL,
+            anchor_uid TEXT NOT NULL, anchor_mode TEXT NOT NULL,
+            PRIMARY KEY (entry_key, anchor_dev, anchor_ino)
+          ) STRICT;
+        `);
+          db.prepare("INSERT INTO owner VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 0)").run(
+            ...identityValues(cacheIdentity),
+            ...identityValues(file),
+          );
+        },
+        true,
+      );
+    }
+    assertLedgerOwner(context);
+    assertLedgerFiles(cache, cacheIdentity, path, file, fd);
+    return context;
+  } catch (error) {
+    try {
+      db?.close();
+    } finally {
+      closeSync(fd);
+    }
+    throw error;
+  }
+}
+
+function closeLedger(context) {
+  try {
+    context.db.close();
+  } finally {
+    try {
+      assertLedgerFiles(
+        context.cache,
+        context.cacheIdentity,
+        context.path,
+        context.file,
+        context.fd,
+      );
+    } finally {
+      closeSync(context.fd);
+    }
+  }
+}
+
+function ledger(lock) {
+  const context = ledgers.get(lock);
+  if (
+    !context ||
+    !same(directory(context.lockPath), context.lockIdentity) ||
+    !same(directory(context.owner), context.ownerIdentity)
+  ) {
+    throw new Error("PR cache metadata lock ownership changed");
+  }
+  assertLedgerFiles(context.cache, context.cacheIdentity, context.path, context.file, context.fd);
+  return context;
+}
+
+function installation(context, entry) {
+  const identity = entryIdentity(context.cache, entry);
+  const row = context.db.prepare("SELECT * FROM installations WHERE key = ?").get(basename(entry));
+  if (!row || !rowMatches(row, "", identity)) {
+    throw new Error("PR dependency installation ledger differs; retain installation");
+  }
+  return { identity, row };
+}
+
+function anchorRows(db, anchor) {
+  return db
+    .prepare("SELECT * FROM holds WHERE anchor_dev = ? AND anchor_ino = ? ORDER BY entry_key")
+    .all(String(anchor.dev), String(anchor.ino));
+}
+
+function assertHold(row, anchor) {
+  if (row.anchor_path !== anchor.path || !rowMatches(row, "anchor_", anchor)) {
+    throw new Error("PR dependency hold identity changed; retain it");
+  }
+}
+
+function acquire(context, entry, anchor, fresh = false) {
+  const identity = entryIdentity(context.cache, entry);
+  assertAnchor(anchor);
+  if (!fresh) {
+    installation(context, entry);
+  }
+  transaction(context, () => {
+    if (fresh) {
+      context.db
+        .prepare("INSERT INTO installations VALUES (?, ?, ?, ?, ?, 0, 0)")
+        .run(basename(entry), ...identityValues(identity));
+    } else {
+      const row = context.db
+        .prepare("SELECT * FROM installations WHERE key = ?")
+        .get(basename(entry));
+      if (!row || !rowMatches(row, "", identity)) {
+        throw new Error("PR dependency installation ledger changed");
+      }
+    }
+    const existing = context.db
+      .prepare("SELECT * FROM holds WHERE entry_key = ? AND anchor_dev = ? AND anchor_ino = ?")
+      .get(basename(entry), String(anchor.dev), String(anchor.ino));
+    if (existing) {
+      assertHold(existing, anchor);
+    } else {
+      context.db
+        .prepare("INSERT INTO holds VALUES (?, ?, ?, ?, ?, ?)")
+        .run(basename(entry), anchor.path, ...identityValues(anchor));
+    }
+    context.db.exec("UPDATE owner SET sequence = sequence + 1 WHERE id = 1");
+    context.db
+      .prepare(
+        "UPDATE installations SET settled = 0, last_used = (SELECT sequence FROM owner WHERE id = 1) WHERE key = ?",
+      )
+      .run(basename(entry));
+  });
+}
+
+function assertLedgerOwner(context) {
+  const owner = context.db.prepare("SELECT * FROM owner WHERE id = 1").get();
+  if (
+    !owner ||
+    !rowMatches(owner, "cache_", context.cacheIdentity) ||
+    !rowMatches(owner, "db_", context.file) ||
+    context.db.prepare("PRAGMA user_version").get().user_version !== 0 ||
+    context.db.prepare("PRAGMA foreign_keys").get().foreign_keys !== 1
+  ) {
+    throw new Error("PR dependency ledger owner differs; retain installations");
+  }
+}
+
 export function withDependencyCacheLock(cache, operation) {
-  mkdirSync(cache, { recursive: true, mode: 0o700 });
+  return withCacheOwner(cache, operation, true);
+}
+
+function withCacheOwner(cache, operation, initialize, readOnly = false) {
+  let created = false;
+  if (initialize) {
+    mkdirSync(dirname(cache), { recursive: true, mode: 0o700 });
+    try {
+      mkdirSync(cache, { mode: 0o700 });
+      created = true;
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
   const cacheIdentity = directory(cache);
   const path = join(cache, ".metadata-lock");
   const deadline = process.hrtime.bigint() + 1_000_000_000n;
@@ -81,27 +330,31 @@ export function withDependencyCacheLock(cache, operation) {
       throw new Error(`PR dependency cache directory changed; retain ${cache}`);
     }
   };
-  // Normal creators overlap these short sections. Wait only for ordinary
-  // release: an expired budget never authorizes removing another owner's lock.
+  // Only the atomic namespace creator may initialize. Peers wait for its DB
+  // while it holds the mutex; a crashed empty namespace is never adopted.
   for (;;) {
     assertCache();
-    const remaining = deadline - process.hrtime.bigint();
-    if (remaining <= 0n) {
-      throw new Error(`PR dependency cache metadata is busy; retain ${path}`);
+    if (process.hrtime.bigint() >= deadline) {
+      const reason = lstatSync(join(cache, ledgerName), { throwIfNoEntry: false })
+        ? "metadata is busy"
+        : "ledger is missing";
+      throw new Error(`PR dependency cache ${reason}; retain ${path}`);
     }
-    try {
-      mkdirSync(path, { mode: 0o700 });
-      break;
-    } catch (error) {
-      if (error.code !== "EEXIST") {
-        throw error;
+    if (created || lstatSync(join(cache, ledgerName), { throwIfNoEntry: false })) {
+      try {
+        mkdirSync(path, { mode: 0o700 });
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST") {
+          throw error;
+        }
       }
     }
     Atomics.wait(
       pause,
       0,
       0,
-      // oxlint-disable-next-line typescript/no-unnecessary-type-conversion -- hrtime.bigint() needs conversion for the Number-only wait budget.
+      // oxlint-disable-next-line typescript/no-unnecessary-type-conversion -- Atomics.wait needs a Number budget from hrtime.bigint().
       Math.max(0, Math.min(10, Number(deadline - process.hrtime.bigint()) / 1_000_000)),
     );
   }
@@ -111,12 +364,26 @@ export function withDependencyCacheLock(cache, operation) {
   mkdirSync(owner, { mode: 0o700 });
   const ownerIdentity = directory(owner);
   const lock = { cache, path, identity, owner };
+  let context;
   try {
+    if (created && readdirSync(cache).some((name) => name !== ".metadata-lock")) {
+      throw new Error("New PR dependency namespace changed before initialization");
+    }
+    context = openLedger(cache, cacheIdentity, created, readOnly);
+    Object.assign(context, { lockPath: path, lockIdentity: identity, owner, ownerIdentity });
+    ledgers.set(lock, context);
     return operation(lock);
   } finally {
-    // A changed-owner release failure wins even when the operation failed:
-    // uncertain ownership must stay visible and retain the lock.
-    releaseDependencyCacheLock(path, identity, owner, ownerIdentity);
+    ledgers.delete(lock);
+    try {
+      if (context) {
+        closeLedger(context);
+      }
+    } finally {
+      // A changed-owner release failure wins even when the operation failed:
+      // uncertain ownership must stay visible and retain the lock.
+      releaseDependencyCacheLock(path, identity, owner, ownerIdentity);
+    }
   }
 }
 
@@ -128,12 +395,6 @@ function releaseDependencyCacheLock(path, identity, owner, ownerIdentity) {
   rmdirSync(path);
 }
 
-function assertLock(lock) {
-  if (!same(directory(lock.path), lock.identity) || !existsSync(lock.owner)) {
-    throw new Error("PR cache metadata lock ownership changed");
-  }
-}
-
 function entryIdentity(cache, entry) {
   if (dirname(entry) !== cache || !/^[a-f0-9]{64}$/.test(basename(entry))) {
     throw new Error("PR dependency installation is outside the lifetime namespace");
@@ -141,88 +402,97 @@ function entryIdentity(cache, entry) {
   return directory(entry);
 }
 
-function links(entry, anchor, identity) {
-  return {
-    hold: join(entry, ".pr-holds", `anchor-${anchor.dev}-${anchor.ino}`),
-    receipt: join(
-      anchor.path,
-      ".pr-cache-holds",
-      `entry-${basename(entry)}-${identity.dev}-${identity.ino}`,
-    ),
-  };
-}
-
-function linkExactly(target, path) {
-  const present = lstatSync(path, { throwIfNoEntry: false });
-  if (!present) {
-    symlinkSync(target, path);
-  } else if (!present.isSymbolicLink() || readlinkSync(path) !== target) {
-    throw new Error("PR dependency hold identity changed");
-  }
-}
-
 export function holdDependencyCache(lock, entry, anchor) {
-  assertLock(lock);
-  assertAnchor(anchor);
-  const identity = entryIdentity(lock.cache, entry);
-  if (!existsSync(join(entry, ".pr-complete"))) {
-    throw new Error("Incomplete PR dependency installation");
+  const context = ledger(lock);
+  if (dirname(entry) !== context.cache || !/^[a-f0-9]{64}$/.test(basename(entry))) {
+    throw new Error("PR dependency installation is outside the lifetime namespace");
   }
-  const { hold, receipt } = links(entry, anchor, identity);
-  const settled = join(entry, ".pr-settled");
-  if (lstatSync(settled, { throwIfNoEntry: false })) {
-    directory(settled);
-    rmdirSync(settled);
+  const present = lstatSync(entry, { throwIfNoEntry: false });
+  const row = context.db.prepare("SELECT * FROM installations WHERE key = ?").get(basename(entry));
+  if (!present && !row) {
+    return false;
   }
-  for (const path of [dirname(hold), dirname(receipt)]) {
-    mkdirSync(path, { recursive: true, mode: 0o700 });
-    directory(path);
+  if (!present || !row) {
+    throw new Error("PR dependency installation ledger differs; retain installation");
   }
-  // Publish the conservative hold first. A crash between these two links leaks
-  // retention rather than permitting collection of a partially pinned anchor.
-  linkExactly(anchor.path, hold);
-  linkExactly(hold, receipt);
-  const now = new Date();
-  utimesSync(entry, now, now);
+  acquire(context, entry, anchor);
+  return true;
 }
 
-export function assertDependencyTarget(target, destination) {
-  const privateCache = dirname(dependencyCacheRoot());
-  if (!target.startsWith(`${privateCache}${sep}`)) {
+export function publishDependencyCache(lock, stage, entry, anchor) {
+  const context = ledger(lock);
+  if (holdDependencyCache(lock, entry, anchor)) {
     return;
   }
+  if (dirname(stage) !== context.cache || !/^install-[0-9]+-[A-Za-z0-9]+$/.test(basename(stage))) {
+    throw new Error("Frozen dependency stage is outside its owned namespace");
+  }
+  directory(stage);
+  // The filesystem transition is outside SQL. A crash/failed commit leaves an
+  // unregistered physical entry, which is retain-only rather than reusable.
+  renameSync(stage, entry);
+  acquire(context, entry, anchor, true);
+}
+
+function assertDependencyTargets(targets, destination) {
   const cache = dependencyCacheRoot();
+  const privateCache = dirname(cache);
+  const privateTargets = targets.filter((target) => target.startsWith(`${privateCache}${sep}`));
+  if (privateTargets.length === 0) {
+    return;
+  }
   const stage = dirname(destination);
-  // The installer validates its private staging projection, then discards it
-  // before publication. It is never handed to an operation or donor consumer.
   if (
     dirname(stage) === cache &&
     /^install-[0-9]+-[A-Za-z0-9]+$/.test(basename(stage)) &&
     basename(destination) === ".pr-dependency-check" &&
-    target.startsWith(`${stage}${sep}`)
+    privateTargets.every((target) => target.startsWith(`${stage}${sep}`))
   ) {
     directory(stage);
     return;
   }
-  const relative = target.slice(cache.length + 1);
-  if (!target.startsWith(`${cache}${sep}`) || !/^[a-f0-9]{64}\//.test(relative)) {
-    throw new Error("Legacy private PR dependency caches cannot supply tooling dependencies");
-  }
-  const entry = join(cache, relative.split(sep)[0]);
-  const anchorPath = dirname(destination);
-  const anchor = { path: anchorPath, ...directory(anchorPath) };
-  if (!basename(anchorPath).startsWith(ANCHOR_PREFIX)) {
+  const anchor = { path: dirname(destination), ...directory(dirname(destination)) };
+  if (!basename(anchor.path).startsWith(ANCHOR_PREFIX)) {
     throw new Error("Private cache donor has no anchor owner");
   }
-  const { hold, receipt } = links(entry, anchor, entryIdentity(cache, entry));
-  if (
-    !lstatSync(hold).isSymbolicLink() ||
-    readlinkSync(hold) !== anchorPath ||
-    !lstatSync(receipt).isSymbolicLink() ||
-    readlinkSync(receipt) !== hold
-  ) {
-    throw new Error("Private cache donor has no matching anchor lifetime hold");
-  }
+  const entries = [
+    ...new Set(
+      privateTargets.map((target) => {
+        const relative = target.slice(cache.length + 1);
+        if (!target.startsWith(`${cache}${sep}`) || !/^[a-f0-9]{64}\//.test(relative)) {
+          throw new Error("Legacy private PR dependency caches cannot supply tooling dependencies");
+        }
+        return join(cache, relative.split(sep)[0]);
+      }),
+    ),
+  ];
+  // Selected helpers run only after publication releases the mutex. Serialize
+  // read/close too: DELETE-mode readers must not race a timeout-zero commit.
+  withCacheOwner(
+    cache,
+    (lock) => {
+      const context = ledger(lock);
+      for (const entry of entries) {
+        installation(context, entry);
+        const hold = context.db
+          .prepare("SELECT * FROM holds WHERE entry_key = ? AND anchor_dev = ? AND anchor_ino = ?")
+          .get(basename(entry), String(anchor.dev), String(anchor.ino));
+        if (!hold) {
+          throw new Error("Private cache donor has no matching anchor lifetime hold");
+        }
+        assertHold(hold, anchor);
+      }
+      if (!same(directory(anchor.path), anchor)) {
+        throw new Error("Private dependency anchor changed during membership lookup");
+      }
+    },
+    false,
+    true,
+  );
+}
+
+export function assertDependencyTarget(target, destination) {
+  assertDependencyTargets([target], destination);
 }
 
 function visitDependencyAliases(modules, visit) {
@@ -241,7 +511,7 @@ function visitDependencyAliases(modules, visit) {
     return;
   }
   // Missing aliases retain the materializer's existing refusal. Errors from
-  // lifetime validation itself must propagate, including a missing hold link.
+  // lifetime validation itself must propagate, including a missing lifetime hold.
   visit(target);
   for (const name of existing(() => readdirSync(modules)) ?? []) {
     const path = join(modules, name);
@@ -280,7 +550,8 @@ export function privateDependencyDonor(root, destination) {
       assertProjectionDirectory(join(destination, name));
     }
   }
-  visitDependencyAliases(destination, (target) => assertDependencyTarget(target, destination));
+  const targets = [];
+  visitDependencyAliases(destination, (target) => targets.push(target));
   const privateCache = dirname(dependencyCacheRoot());
   let privateDonor = false;
   for (const modules of [
@@ -291,68 +562,63 @@ export function privateDependencyDonor(root, destination) {
       // Self-donor reuse may preserve or complete an existing projection without
       // creator authority; every private input must already have its anchor hold.
       if (root === dirname(destination)) {
-        assertDependencyTarget(target, destination);
+        targets.push(target);
       }
       if (target === privateCache || target.startsWith(`${privateCache}${sep}`)) {
         privateDonor = true;
       }
     });
   }
+  assertDependencyTargets(targets, destination);
   return privateDonor;
 }
 
-// Detach under the same mutex as publication/acquisition. Large recursive
-// deletion happens after unlocking, when no new consumer can discover the key.
 export function collectUnusedDependencyCaches(lock, current = "") {
-  assertLock(lock);
-  const entries = readdirSync(lock.cache)
-    .filter((name) => /^[a-f0-9]{64}$/.test(name))
-    .map((name) => ({
-      path: join(lock.cache, name),
-      stat: lstatSync(join(lock.cache, name), { bigint: true }),
-    }))
-    // oxlint-disable-next-line typescript/no-unnecessary-type-conversion -- BigIntStats timestamps need conversion for a numeric comparator result.
-    .toSorted((left, right) => Number(right.stat.mtimeMs - left.stat.mtimeMs));
+  const context = ledger(lock);
+  const rows = context.db
+    .prepare(`
+    SELECT * FROM installations i WHERE settled = 1
+      AND NOT EXISTS (SELECT 1 FROM holds h WHERE h.entry_key = i.key)
+    ORDER BY last_used DESC, key
+  `)
+    .all()
+    .filter((row) => join(context.cache, row.key) !== current);
+  const candidates = rows
+    .map((row) => {
+      const entry = join(context.cache, row.key);
+      const { identity } = installation(context, entry);
+      return { row, entry, identity };
+    })
+    .slice(4);
   const retired = [];
-  let unused = 0;
-  for (const { path, stat } of entries) {
-    if (
-      path === current ||
-      !stat.isDirectory() ||
-      stat.uid !== BigInt(process.getuid()) ||
-      (stat.mode & 0o7777n) !== 0o700n ||
-      !existsSync(join(path, ".pr-complete"))
-    ) {
-      continue;
-    }
-    const settled = join(path, ".pr-settled");
-    if (
-      !lstatSync(settled, { throwIfNoEntry: false }) ||
-      !lstatSync(join(path, ".pr-holds"), { throwIfNoEntry: false })
-    ) {
-      continue;
-    }
-    directory(settled);
-    directory(join(path, ".pr-holds"));
-    // Unknown/legacy ownership is retain-only. Never turn an absent process or
-    // missing/replaced anchor pathname into permission to remove its packages.
-    if (
-      [".pr-holds", ".pr-users"].some((name) => {
-        const holds = join(path, name);
-        const present = lstatSync(holds, { throwIfNoEntry: false });
-        return present && (!present.isDirectory() || readdirSync(holds).length > 0);
-      })
-    ) {
-      continue;
-    }
-    if (unused++ < 4) {
-      continue;
-    }
-    if (!same(directory(path), stat)) {
+  for (const { row, entry, identity } of candidates) {
+    const detached = join(context.cache, `retired-${randomUUID()}`);
+    // Remove eligibility atomically before filesystem detach. A failed rename
+    // leaves an unknown physical entry; it never becomes reusable by inference.
+    transaction(context, () => {
+      const present = context.db.prepare("SELECT * FROM installations WHERE key = ?").get(row.key);
+      const held = context.db
+        .prepare("SELECT 1 FROM holds WHERE entry_key = ? LIMIT 1")
+        .get(row.key);
+      if (
+        !present ||
+        !rowMatches(present, "", identity) ||
+        present.settled !== 1 ||
+        present.last_used !== row.last_used ||
+        held
+      ) {
+        throw new Error("PR dependency collection eligibility changed");
+      }
+      context.db.prepare("DELETE FROM installations WHERE key = ?").run(row.key);
+    });
+    if (!same(entryIdentity(context.cache, entry), identity)) {
       throw new Error("PR dependency installation changed before eviction");
     }
-    const detached = join(lock.cache, `retired-${randomUUID()}`);
-    renameSync(path, detached);
+    renameSync(entry, detached);
+    if (!same(directory(detached), identity)) {
+      throw new Error("PR dependency installation changed after detach; retain it");
+    }
+    ledger(lock);
     retired.push(detached);
   }
   return retired;
@@ -360,77 +626,80 @@ export function collectUnusedDependencyCaches(lock, current = "") {
 
 export function retireAnchorDependencies(anchor, retire) {
   assertAnchor(anchor);
-  const receipts = join(anchor.path, ".pr-cache-holds");
-  if (!existsSync(receipts)) {
+  const cache = dependencyCacheRoot();
+  // Startup without a private projection has nothing to release. Missing
+  // ledger state can never authorize settlement of a cache installation.
+  if (!lstatSync(cache, { throwIfNoEntry: false })) {
+    privateDependencyDonor(anchor.path, join(anchor.path, "node_modules"));
     retire();
     return;
   }
-  directory(receipts);
-  const cache = dependencyCacheRoot();
-  let cacheIdentity;
-  const owned = withDependencyCacheLock(cache, (lock) => {
-    assertAnchor(anchor);
-    cacheIdentity = directory(cache);
-    return readdirSync(receipts).map((name) => {
-      const match = /^entry-([a-f0-9]{64})-([0-9]+)-([0-9]+)$/.exec(name);
-      if (!match) {
-        throw new Error("Unknown PR dependency lifetime receipt; retain anchor");
-      }
-      const entry = join(lock.cache, match[1]);
-      const identity = entryIdentity(lock.cache, entry);
-      if (String(identity.dev) !== match[2] || String(identity.ino) !== match[3]) {
-        throw new Error("PR dependency installation identity changed; retain hold");
-      }
-      const { hold, receipt } = links(entry, anchor, identity);
-      if (
-        !lstatSync(receipt).isSymbolicLink() ||
-        readlinkSync(receipt) !== hold ||
-        !lstatSync(hold).isSymbolicLink() ||
-        readlinkSync(hold) !== anchor.path
-      ) {
-        throw new Error("PR dependency lifetime links changed; retain hold");
-      }
-      return {
-        entry,
-        entryIdentity: identity,
-        hold,
-        identity: lstatSync(hold, { bigint: true }),
-        modified: new Date(Number(identity.mtimeMs)),
-      };
-    });
-  });
-  // Holds remain published while the creator removes its drained anchor. A busy
-  // or changed metadata owner on reentry retains them rather than inferring release.
+  privateDependencyDonor(anchor.path, join(anchor.path, "node_modules"));
+  let cacheIdentity, fileIdentity;
+  const owned = withCacheOwner(
+    cache,
+    (lock) => {
+      assertAnchor(anchor);
+      const context = ledger(lock);
+      cacheIdentity = context.cacheIdentity;
+      fileIdentity = context.file;
+      return anchorRows(context.db, anchor).map((row) => {
+        assertHold(row, anchor);
+        const entry = join(cache, row.entry_key);
+        const { identity } = installation(context, entry);
+        return { row, entry, identity };
+      });
+    },
+    false,
+  );
+  // Holds stay committed throughout the creator's full-drain retirement.
+  // PID death, missing paths, or failed reentry are never release authority.
   assertAnchor(anchor);
   retire();
   if (lstatSync(anchor.path, { throwIfNoEntry: false })) {
     throw new Error("PR anchor retirement not confirmed");
   }
-  withDependencyCacheLock(cache, () => {
-    if (!same(directory(cache), cacheIdentity)) {
-      throw new Error("PR cache identity changed after anchor retirement");
-    }
-    for (const { entry, entryIdentity: captured, hold, identity } of owned) {
-      if (
-        !same(entryIdentity(cache, entry), captured) ||
-        !same(lstatSync(hold, { bigint: true }), identity) ||
-        readlinkSync(hold) !== anchor.path
-      ) {
-        throw new Error("PR dependency hold changed after anchor retirement; retain it");
+  withCacheOwner(
+    cache,
+    (lock) => {
+      const context = ledger(lock);
+      if (!same(context.cacheIdentity, cacheIdentity) || !same(context.file, fileIdentity)) {
+        throw new Error("PR cache ledger identity changed after anchor retirement");
       }
-    }
-    for (const { hold, modified } of owned) {
-      unlinkSync(hold);
-      const holds = dirname(hold);
-      if (
-        readdirSync(holds).length === 0 &&
-        !lstatSync(join(dirname(holds), ".pr-users"), { throwIfNoEntry: false })
-      ) {
-        // Empty/missing hold metadata alone is not settlement proof. Only this
-        // successful creator retirement may publish the unused-entry fact.
-        mkdirSync(join(dirname(holds), ".pr-settled"), { mode: 0o700 });
-        utimesSync(dirname(holds), modified, modified);
+      for (const { entry, identity } of owned) {
+        if (!same(installation(context, entry).identity, identity)) {
+          throw new Error("PR dependency installation changed after anchor retirement");
+        }
       }
-    }
-  });
+      transaction(context, () => {
+        const rows = anchorRows(context.db, anchor);
+        if (
+          rows.length !== owned.length ||
+          rows.some((row, index) =>
+            Object.keys(row).some((key) => row[key] !== owned[index].row[key]),
+          )
+        ) {
+          throw new Error("PR dependency holds changed after retirement; retain them");
+        }
+        for (const { row, identity } of owned) {
+          const entry = context.db
+            .prepare("SELECT * FROM installations WHERE key = ?")
+            .get(row.entry_key);
+          if (!entry || !rowMatches(entry, "", identity)) {
+            throw new Error("PR dependency installation ledger changed after retirement");
+          }
+          context.db
+            .prepare("DELETE FROM holds WHERE entry_key = ? AND anchor_dev = ? AND anchor_ino = ?")
+            .run(row.entry_key, row.anchor_dev, row.anchor_ino);
+          context.db
+            .prepare(`
+          UPDATE installations SET settled = 1 WHERE key = ?
+            AND NOT EXISTS (SELECT 1 FROM holds WHERE entry_key = ?)
+        `)
+            .run(row.entry_key, row.entry_key);
+        }
+      });
+    },
+    false,
+  );
 }

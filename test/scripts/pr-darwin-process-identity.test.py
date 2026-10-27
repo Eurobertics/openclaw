@@ -133,7 +133,7 @@ class LockTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='pr-identity-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='core.hooksPath', GIT_CONFIG_VALUE_0='/dev/null', GIT_CONFIG_KEY_1='commit.gpgSign', GIT_CONFIG_VALUE_1='false', GIT_NO_LAZY_FETCH='1', GIT_ALLOW_PROTOCOL='file', TMPDIR=str(self.root))
+        self.env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='core.hooksPath', GIT_CONFIG_VALUE_0='/dev/null', GIT_CONFIG_KEY_1='commit.gpgSign', GIT_CONFIG_VALUE_1='false', GIT_NO_LAZY_FETCH='1', GIT_ALLOW_PROTOCOL='file', HOME=str(self.root), TMPDIR=str(self.root))
         self.env.pop('BASH_COMPAT', None)
         self.env.pop('OPENCLAW_PR_LOCK_NOTIFY_FD', None)
         self.env.pop('OPENCLAW_PR_DEDICATED_PROCESS_GROUP', None)
@@ -177,7 +177,7 @@ class LockTests(unittest.TestCase):
         return p
 
     def supervise_anchor(self, body, handoff='valid'):
-        anchor = self.root/'openclaw-pr-anchor-v2.fixture'
+        anchor = self.root/'openclaw-pr-anchor-v3.fixture'
         anchor.mkdir(mode=0o700)
         shutil.copytree(self.sources.parent, anchor/'scripts')
         script = anchor/'scripts'/'pr'

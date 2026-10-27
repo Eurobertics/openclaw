@@ -46,7 +46,7 @@ function retire(path: string) {
 describePosix("materialized PR anchor retirement", () => {
   it("retires the Git snapshot when supervisor startup fails before any operation child", () => {
     const root = realpathSync(tempDirs.make("pr-startup-retirement-"));
-    const anchor = join(root, "openclaw-pr-anchor-v2.startup");
+    const anchor = join(root, "openclaw-pr-anchor-v3.startup");
     mkdirSync(anchor, { mode: 0o700 });
     copyPrWrapperSources(anchor);
     const childStarted = join(root, "child-started");
@@ -63,7 +63,7 @@ describePosix("materialized PR anchor retirement", () => {
         requireNodeTool("node"),
         root,
       ],
-      { encoding: "utf8", env: { ...process.env, TMPDIR: root } },
+      { encoding: "utf8", env: { ...process.env, HOME: root, TMPDIR: root } },
     );
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("github.sh");
@@ -76,7 +76,7 @@ describePosix("materialized PR anchor retirement", () => {
 
   it("retires a newly created anchor before helper extraction or child startup", () => {
     const root = realpathSync(tempDirs.make("pr-anchor-retirement-"));
-    const anchor = join(root, `openclaw-pr-anchor-v2.${process.pid}.created`);
+    const anchor = join(root, `openclaw-pr-anchor-v3.${process.pid}.created`);
     mkdirSync(anchor, { mode: 0o700 });
     const result = retire(anchor);
     expect(result.status, result.stderr).toBe(0);
@@ -86,7 +86,7 @@ describePosix("materialized PR anchor retirement", () => {
   it.each([
     "openclaw-pr-anchor.legacy",
     "openclaw-pr-anchor.2147483647.dead",
-    "openclaw-pr-anchor-v2.2147483647.foreign",
+    "openclaw-pr-anchor-v3.2147483647.foreign",
   ])("does not adopt or sweep %s", (name) => {
     const root = realpathSync(tempDirs.make("pr-anchor-legacy-"));
     const path = join(root, name);

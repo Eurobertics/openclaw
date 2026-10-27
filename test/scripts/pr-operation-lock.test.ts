@@ -44,6 +44,8 @@ import { createMainRefreshFixture } from "./pr-main-refresh.test-support.js";
 import { createProcessGroupTimingPreload } from "./pr-operation-lock.test-support.js";
 import {
   copyPrWrapperSources,
+  createSettledPrCacheEntry,
+  readPrCacheState,
   createIndependentPrFixtureEnv,
   linkPrWrapperDependencies,
 } from "./pr-wrapper.test-support.js";
@@ -391,7 +393,7 @@ async function runSupervisedFixture(
   // Entry bookkeeping is fixture-owned, not an untracked checkout transition input.
   const entryDir = tempDirs.make("openclaw-pr-supervised-entry-");
   const anchorDir = options.materializedAnchor
-    ? realpathSync(tempDirs.make("openclaw-pr-anchor-v2."))
+    ? realpathSync(tempDirs.make("openclaw-pr-anchor-v3."))
     : undefined;
   if (anchorDir) {
     copyPrWrapperSources(anchorDir);
@@ -444,6 +446,7 @@ async function runSupervisedFixture(
         cwd: repoDir,
         env: {
           ...createIndependentPrFixtureEnv(),
+          HOME: entryDir,
           ...options.env,
           PR_TEST_CACHE_BOOTSTRAP: cacheBootstrap,
         },
@@ -1279,6 +1282,7 @@ exec ${shellQuote(mktemp)} "$@"
         timeout: 120_000,
         env: {
           ...createIndependentPrFixtureEnv(),
+          HOME: repoDir,
           canonical_repo_root: join(repoDir, "untrusted-root"),
           OPENCLAW_GH_BIN: gh,
           GH_REPO: "fixture/repo",
@@ -1481,10 +1485,8 @@ exec ${shellQuote(mktemp)} "$@"
   }) => {
     const repoDir = createRepo();
     const home = realpathSync(tempDirs.make("pr-escaped-cache-home-"));
-    const cache = join(home, ".cache/openclaw/pr-dependencies/v2");
-    const dependencyEntry = join(cache, "0".repeat(64));
-    mkdirSync(dependencyEntry, { recursive: true, mode: 0o700 });
-    mkdirSync(join(dependencyEntry, ".pr-complete"));
+    const cache = join(home, ".cache/openclaw/pr-dependencies/v3");
+    const dependencyEntry = createSettledPrCacheEntry(cache, "0".repeat(64));
     const dependency = join(dependencyEntry, "package.mjs");
     writeFileSync(dependency, 'export const value = "still available";\n');
     const request = join(home, "import-request");
@@ -1533,11 +1535,7 @@ exec ${shellQuote(mktemp)} "$@"
     expect(existsSync(join(result.anchorDir!, "scripts/pr"))).toBe(true);
     await withinTest(receipts.waitFor(proof + ".listening", "ready"), signal);
     for (let index = 1; index <= 6; index++) {
-      const entry = join(cache, String(index).repeat(64));
-      mkdirSync(entry, { mode: 0o700 });
-      mkdirSync(join(entry, ".pr-complete"));
-      mkdirSync(join(entry, ".pr-holds"), { mode: 0o700 });
-      mkdirSync(join(entry, ".pr-settled"), { mode: 0o700 });
+      createSettledPrCacheEntry(cache, String(index).repeat(64));
     }
     const retired = withDependencyCacheLock(cache, (lock) => collectUnusedDependencyCaches(lock));
     for (const path of retired) {
@@ -1546,7 +1544,7 @@ exec ${shellQuote(mktemp)} "$@"
     writeFileSync(request, "import now");
     await withinTest(receipts.waitFor(proof, "ready"), signal);
     expect(readFileSync(proof, "utf8")).toBe("still available");
-    expect(readdirSync(join(dependencyEntry, ".pr-holds"))).toHaveLength(1);
+    expect(readPrCacheState(dependencyEntry).anchors).toHaveLength(1);
     const inheritedGit = JSON.parse(readFileSync(gitProof, "utf8"));
     try {
       expect(inheritedGit.status).toBe(0);

@@ -22,6 +22,12 @@ export declare function holdDependencyCache(
   lock: CacheLock,
   entry: string,
   anchor: AnchorIdentity,
+): boolean;
+export declare function publishDependencyCache(
+  lock: CacheLock,
+  stage: string,
+  entry: string,
+  anchor: AnchorIdentity,
 ): void;
 export declare function assertDependencyTarget(target: string, destination: string): void;
 export declare function privateDependencyDonor(root: string, destination: string): boolean;

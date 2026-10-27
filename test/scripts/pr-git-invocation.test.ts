@@ -289,6 +289,31 @@ process.exit(git.status ?? 1);
         expect(String(result).trim()).toBe(name);
       }
     }
+    const alternate = join(f.root, "alternate.exe");
+    copyFileSync(f.git, alternate);
+    const denied = {
+      cwd: repositories[0]!.cwd,
+      env: {
+        ...env,
+        Path: dirname(f.git),
+        OPENCLAW_PR_GIT: alternate,
+        GIT_EXEC: alternate,
+        OPENCLAW_GH_BIN: gh,
+      },
+      encoding: "utf8" as const,
+      timeout: 10_000,
+    };
+    for (const asynchronous of [false, true]) {
+      const result = Promise.resolve().then(() =>
+        asynchronous
+          ? execPrGhAsync(["repo", "set-default", "--view"], denied, "plain")
+          : execPrGh(["repo", "set-default", "--view"], denied, "plain"),
+      );
+      await expect(result).rejects.toMatchObject({
+        code: "OPENCLAW_PR_GIT_CAPABILITY",
+        status: 78,
+      });
+    }
     configPaths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]));
     expect(readdirSync(ghConfig).toSorted()).toEqual(beforeNames);
   }, 30_000);
@@ -410,8 +435,11 @@ process.exit(git.status ?? 1);
     );
     expect(admit(com, { Path: quotedPath, PATHEXT: undefined }).executable).toBe(realpathSync(com));
     // Native Node passes the lexicographically first case-insensitive env key.
-    expect(admit(exe, { PATH: backend, Path: f.root, PATHEXT: ".EXE" }).executable).toBe(
+    expect(admit(exe, { PATH: `"${backend}"`, Path: f.root, PATHEXT: ".EXE" }).executable).toBe(
       realpathSync(exe),
+    );
+    expect(() => admit(cwdGit, { PATH: backend, Path: f.root, PATHEXT: ".EXE" })).toThrow(
+      "(not found)",
     );
     expect(() => admit(cwdGit, { Path: quotedPath })).toThrow("does not match Windows PATH Git");
     expect(() => admit(cwdGit, { Path: "" })).toThrow("(not found)");
