@@ -64,7 +64,7 @@ it.each(["read", "refresh"] as const)(
       await vi.advanceTimersByTimeAsync(20_000);
       finishScope.resolve();
       await scope;
-      await vi.advanceTimersByTimeAsync(10_000 - 1);
+      await vi.advanceTimersByTimeAsync(70_000 - 1);
       expect(lane.pool.getSnapshot().workers).toBe(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(lane.pool.getSnapshot().workers).toBe(0);

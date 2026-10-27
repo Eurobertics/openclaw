@@ -239,7 +239,7 @@ export function clearDatabaseWorkerIdleRetirement(lane: SessionDatabaseWorkerLan
   lane.idleTimer = undefined;
 }
 
-// Keep history and search warm; other lanes release their independent isolates sooner.
+// Keep interactive readers warm; background lanes span minute-spaced bursts before retiring.
 // Only new work cancels the idle deadline, never unrelated database cleanup.
 export function armDatabaseWorkerIdleRetirement(lane: SessionDatabaseWorkerLane): void {
   refreshDatabaseWorkerPressureSubscription();
@@ -250,7 +250,7 @@ export function armDatabaseWorkerIdleRetirement(lane: SessionDatabaseWorkerLane)
   if (lane.idleTimer) {
     return;
   }
-  const idleMs = lane === historyLane || lane === transcriptSearchLane ? 5 * 60_000 : 30_000;
+  const idleMs = lane === historyLane || lane === transcriptSearchLane ? 5 * 60_000 : 90_000;
   lane.idleTimer = runInDetachedAsyncContext(() =>
     historySetTimeout(() => {
       lane.idleTimer = undefined;

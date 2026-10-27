@@ -567,7 +567,7 @@ it.each([false, true])(
             env: state.env,
           })
         : await seed(state, "main", "idle-a");
-      const idleMs = missing ? 30_000 : 5 * 60_000;
+      const idleMs = missing ? 90_000 : 5 * 60_000;
       const beforeRead = observed.timers.mock.calls.length;
       await a.read();
       const worker = observed.workers.at(-1)!;
