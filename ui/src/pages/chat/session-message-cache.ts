@@ -389,11 +389,14 @@ export function cacheChatSessionSnapshot(
       : incoming;
   const withReactions =
     withProgress.messageReactions === undefined &&
-    existing?.snapshot.sessionId === incoming.sessionId
+    existing?.snapshot.messageReactions !== undefined &&
+    existing.snapshot.sessionId === incoming.sessionId
       ? { ...withProgress, messageReactions: existing.snapshot.messageReactions }
       : withProgress;
   const withWidgetHeights =
-    withReactions.widgetHeights === undefined && existing?.snapshot.sessionId === incoming.sessionId
+    withReactions.widgetHeights === undefined &&
+    existing?.snapshot.widgetHeights !== undefined &&
+    existing.snapshot.sessionId === incoming.sessionId
       ? { ...withReactions, widgetHeights: existing.snapshot.widgetHeights }
       : withReactions;
   // Boards belong to the scoped conversation key, independently of transcript resets.
@@ -408,11 +411,15 @@ export function cacheChatSessionSnapshot(
       ? { ...withBoard, composer: existing.snapshot.composer }
       : withBoard;
   const withViewers =
-    withComposer.headerViewers === undefined && existing?.snapshot.sessionId === incoming.sessionId
+    withComposer.headerViewers === undefined &&
+    existing?.snapshot.headerViewers !== undefined &&
+    existing.snapshot.sessionId === incoming.sessionId
       ? { ...withComposer, headerViewers: existing.snapshot.headerViewers }
       : withComposer;
   const snapshot =
-    withViewers.headerSharing === undefined && existing?.snapshot.sessionId === incoming.sessionId
+    withViewers.headerSharing === undefined &&
+    existing?.snapshot.headerSharing !== undefined &&
+    existing.snapshot.sessionId === incoming.sessionId
       ? { ...withViewers, headerSharing: existing.snapshot.headerSharing }
       : withViewers;
   if (

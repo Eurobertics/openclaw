@@ -49,6 +49,12 @@ const widgetSnapshot = (
 ): ChatSessionSnapshot => ({ messages, pagination: { hasMore: false }, sessionId, ...extras });
 
 describe("session message cache", () => {
+  it("admits a first snapshot without a session incarnation", () => {
+    const { read, write } = createCacheContext();
+    const value = { messages: ["first history"], pagination: { hasMore: false } };
+    write(value);
+    expect(read()).toMatchObject(value);
+  });
   it("retains reaction facts only across the same session incarnation", () => {
     const { read, write } = createCacheContext();
     const summaries = [{ emoji: "👍", count: 1, identities: [{ id: "peer" }] }];
