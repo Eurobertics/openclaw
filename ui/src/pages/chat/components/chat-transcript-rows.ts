@@ -1,8 +1,6 @@
 import { lazy } from "solid-js";
 import "../../../styles/chat/skill-learned-notice.css";
-import { AgentRunFrame } from "./chat-agent-run-frame.tsx";
 import { ActivityGroup, MessageGroup } from "./chat-message-group-view.tsx";
-import { StreamGroup, UnplacedSubagentWait } from "./chat-message-stream-view.tsx";
 import { ChatNotice } from "./chat-notice-view.tsx";
 import { RealtimeTalkConversation } from "./chat-realtime-controls.tsx";
 import { TranscriptWorkPreviews } from "./chat-transcript-content.tsx";
@@ -13,10 +11,10 @@ export const nativeRows = {
   "system-events": lazy(() => import("./chat-system-events.tsx"), { export: "ChatSystemEvents" }),
   group: MessageGroup,
   activity: ActivityGroup,
-  stream: StreamGroup,
+  stream: lazy(() => import("./chat-message-stream-view.tsx"), { export: "StreamGroup" }),
   work: WorkGroupSummary,
-  frame: AgentRunFrame,
-  wait: UnplacedSubagentWait,
+  frame: lazy(() => import("./chat-agent-run-frame.tsx"), { export: "AgentRunFrame" }),
+  wait: lazy(() => import("./chat-message-stream-view.tsx"), { export: "UnplacedSubagentWait" }),
   divider: lazy(() => import("./chat-divider.tsx"), { export: "ChatDivider" }),
   notice: ChatNotice,
   "work-previews": TranscriptWorkPreviews,

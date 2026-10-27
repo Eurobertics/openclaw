@@ -485,6 +485,8 @@ export function createControlUiCodeSplitting(options: { includeBootGroups?: bool
                 // Shared dependencies must be assigned first, or a route group pulls
                 // them (and therefore other routes) into its eagerly imported chunk.
                 priority: 8 - index,
+                // Keep optional entry dependencies out of unrelated boot entries.
+                entriesAware: true,
                 includeDependenciesRecursively: true,
                 // Keep each measured boot partition together instead of queueing
                 // several fragments over HTTP/1.1. Shared and route-only code

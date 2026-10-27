@@ -293,7 +293,7 @@ describe("Control UI build chunking", () => {
     const pluginChunk = chunks.find((chunk) => pluginLoader in chunk.modules)!;
     const actionChunk = chunks.find((chunk) => pluginActions in chunk.modules)!;
     const sharedChunk = chunks.find((chunk) => sharedUi in chunk.modules)!;
-    expect(actionChunk.fileName).toBe(sharedChunk.fileName);
+    expect(actionChunk.fileName).not.toBe(sharedChunk.fileName);
     expect(staticImports(pluginChunk.fileName)).toContain(actionChunk.fileName);
     expect(staticImports(pluginChunk.fileName)).not.toContain(chatChunk.fileName);
     const entryChunk = chunks.find((chunk) => chunk.isEntry)!;

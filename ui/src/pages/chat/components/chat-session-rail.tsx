@@ -1,6 +1,6 @@
 import "../../../styles/chat/session-rail.css";
 import "../../../styles/chat/working-indicator.css";
-import { createMemo, For, onSettled, Show } from "solid-js";
+import { createMemo, For, lazy, onSettled, Show } from "solid-js";
 import type { SessionObserverDigest } from "../../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { ControlUiSessionPullRequest } from "../../../../../src/gateway/control-ui-contract.js";
 import type { GatewayBrowserClient } from "../../../api/gateway.ts";
@@ -29,13 +29,17 @@ import { resolveChatAttachmentLimits } from "./chat-attachment-admission.ts";
 import type { ChatAttachmentControlsProps } from "./chat-attachment-controls.types.ts";
 import { createChatAttachmentDropHandlers } from "./chat-attachments.ts";
 import { ChatCommentController } from "./chat-comment-controller.ts";
+import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
 import { MessageGroup } from "./chat-message-group-view.tsx";
-import { StreamGroup } from "./chat-message-stream-view.tsx";
 import type { ChatModelControlsProps } from "./chat-model-controls.types.ts";
 import { SessionRailComposer, sessionRailQuestion } from "./chat-session-rail-composer.tsx";
 import type { SidebarPanelHostRegistration } from "./chat-sidebar-region-types.ts";
 
 registerEnglishCatalog(registerChatSessionEnglish);
+
+const StreamGroup = lazy(() => import("./chat-message-stream-view.tsx"), {
+  export: "StreamGroup",
+});
 
 /** Adapt pane facts only after Side Chat's first presentation loads this module. */
 export function ChatSessionRailPanel(
@@ -356,16 +360,24 @@ function ChatSessionRailContent(props: ChatSessionRailProps, host: ChatSessionRa
                       <Show when={working()}>
                         {(waiting) => (
                           // The main transcript's working group, shown while a run has no output yet.
-                          <StreamGroup
-                            parts={[
-                              {
-                                kind: "reading-indicator",
-                                key: `side-chat:${waiting().startedAt}`,
-                                startedAt: waiting().startedAt,
-                              },
-                            ]}
-                            options={{}}
-                          />
+                          <ChatLazyBoundary
+                            fallback={
+                              <div class="chat-group" role="status">
+                                {t("common.loading")}
+                              </div>
+                            }
+                          >
+                            <StreamGroup
+                              parts={[
+                                {
+                                  kind: "reading-indicator",
+                                  key: `side-chat:${waiting().startedAt}`,
+                                  startedAt: waiting().startedAt,
+                                },
+                              ]}
+                              options={{}}
+                            />
+                          </ChatLazyBoundary>
                         )}
                       </Show>
                       <Show when={failed()}>

@@ -1,9 +1,10 @@
-import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, For, lazy, onSettled, Show } from "solid-js";
 import { PersonName } from "../../../components/person-activity-link-solid.tsx";
 import { personActivityLink } from "../../../components/person-activity-link.ts";
 import type { MessageGroup as MessageGroupData } from "../../../lib/chat/chat-types.ts";
 import { messageClientSourcesLabel } from "../../../lib/chat/message-client-source.ts";
 import { normalizeRoleForGrouping } from "../../../lib/chat/message-normalizer.ts";
+import { t } from "../../../lib/reactive/i18n.ts";
 import { createMediaQuerySource } from "../../../lib/reactive/platform.ts";
 import { ChatAvatar, ForwardedAvatar } from "../chat-avatar.ts";
 import { persistedMessageEntryId } from "../chat-thread-items.ts";
@@ -35,7 +36,6 @@ import type { MessageActionDetails } from "./chat-message-markdown.types.ts";
 import { GroupMessageReactions } from "./chat-message-reaction-chips-view.tsx";
 import { messageReactionOptions } from "./chat-message-reaction-model.ts";
 import { ChatSendStatus } from "./chat-message-send-status-view.tsx";
-import { StreamGroupParts } from "./chat-message-stream-view.tsx";
 import type { AssistantMessageDisclosure } from "./chat-message-text-view.tsx";
 import { MessageMeta } from "./chat-message-timestamp-view.tsx";
 import {
@@ -50,6 +50,10 @@ import { selectBrowserTabPreviews } from "./chat-tool-cards.ts";
 import { TurnRecapRow } from "./chat-turn-recap-view.tsx";
 
 export type { NativeMessageGroupOptions } from "./chat-message-group-frame.ts";
+
+const StreamGroupParts = lazy(() => import("./chat-message-stream-view.tsx"), {
+  export: "StreamGroupParts",
+});
 
 function MessageActionsRow(props: {
   messageKey?: string;
@@ -505,11 +509,19 @@ function FramedMessageGroup(props: {
             ) : undefined
           }
         >
-          <StreamGroupParts
-            parts={options().activeContinuation!.parts}
-            options={options().activeContinuation!.options}
-            presentation="continuation"
-          />
+          <ChatLazyBoundary
+            fallback={
+              <div class="chat-group" role="status">
+                {t("common.loading")}
+              </div>
+            }
+          >
+            <StreamGroupParts
+              parts={options().activeContinuation!.parts}
+              options={options().activeContinuation!.options}
+              presentation="continuation"
+            />
+          </ChatLazyBoundary>
         </Show>
       </div>
       <Show when={!frame().isTurnBlock}>
