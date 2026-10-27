@@ -235,8 +235,8 @@ export async function readArtwork(shell: Locator, artworkDetail?: "fingerprint" 
       : null;
     let composerContrast: number | null = null;
     if (composer) {
-      const bounds = composer.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) {
+      const composerBounds = composer.getBoundingClientRect();
+      if (composerBounds.width <= 0 || composerBounds.height <= 0) {
         throw new Error("Contrast must be measured on a visible reading surface");
       }
       probe.style.backgroundColor = "var(--chat-composer-surface)";
