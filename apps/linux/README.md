@@ -607,7 +607,7 @@ revision. The app copies verified resource bytes to an immutable directory under
 `~/.openclaw/tools/desktop-runtime`; services never reference a temporary AppImage
 mount. Healthy runtime activations reclaim unused immutable directories under the
 retention policy above. On Linux, Node remains installation/build tooling.
-Fresh local setup also selects bundled Bun for the app-installed CLI launcher.
+Fresh local setup also selects the bundled runtime for the app-installed CLI launcher.
 
 Linux resources carry a fixed `OPENCLAW-BUN-RUNTIME-V1` header so linuxdeploy
 cannot rewrite the pinned ELF executable. Installation strips that header and
