@@ -350,6 +350,12 @@ explicitly capture one form factor from another emulator.
 Each form factor's debug APK is built before starting its screenshot emulator,
 so compilation does not compete with emulator boot or rendering.
 
+**Android Store Release** enables bounded screenshot diagnostics. If capture
+fails, the existing emulator diagnostic artifact retains phase timings, host
+resource samples, image identity, and system/ANR evidence for 30 days. App debug
+logs and signing files are excluded. Local Linux runs can opt in with
+`ANDROID_SCREENSHOT_DIAGNOSTICS=1`.
+
 For a nonpublishing hosted replay, select `screenshots` in **Android Emulator
 Diagnostic** and supply the exact candidate commit SHA. It runs the same phone
 and Wear capture script with `ANDROID_SCREENSHOT_DIAGNOSTICS=1`, recording phase

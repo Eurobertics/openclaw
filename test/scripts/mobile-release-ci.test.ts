@@ -391,6 +391,10 @@ describe("mobile release CI tools", () => {
               "process-status.txt",
               "ui-dumps/openclaw-settings.xml",
               "activity-start/openclaw-settings.txt",
+              "diagnostics/host-resources.log",
+              "diagnostics/phases.log",
+              "diagnostics/last-anr.txt",
+              "diagnostics/system-events.log",
             ].map(
               (file) =>
                 `android-release-recovery/source/.artifacts/android-screenshots/latest/${formFactor}/${file}`,
@@ -441,13 +445,20 @@ describe("mobile release CI tools", () => {
           permissions: Record<string, string>;
           "runs-on": string;
           steps: WorkflowStep[];
-          "timeout-minutes": number;
+          "timeout-minutes": string;
         };
       };
       name: string;
       on: {
         workflow_dispatch: {
           inputs: {
+            operation: {
+              default: string;
+              description: string;
+              options: string[];
+              required: boolean;
+              type: string;
+            };
             target_sha: {
               default?: unknown;
               description: string;
@@ -464,6 +475,12 @@ describe("mobile release CI tools", () => {
     const validationSteps = validationJob.steps;
     const job = workflow.jobs.diagnose;
     const steps = job.steps;
+    const stepsFor = (operation: string) =>
+      steps.filter(
+        (step) =>
+          !step.if ||
+          evaluateWorkflowExpression(step.if, { inputs: { operation }, always: () => true }),
+      );
     const [validate, validationTrustedCheckout, checkout, head, parity] = expectStepPrefix(
       validationSteps,
       [
@@ -475,7 +492,7 @@ describe("mobile release CI tools", () => {
       ],
     );
     const [initialize, trustedCheckout, setup, toolingStep, kvm, diagnosticStep, artifact] =
-      expectStepPrefix(steps, [
+      expectStepPrefix(stepsFor("boot"), [
         "Initialize Android emulator diagnostic",
         "Checkout trusted Android tooling",
         "Setup Android toolchain",
@@ -484,12 +501,38 @@ describe("mobile release CI tools", () => {
         "Run phone emulator diagnostic",
         "Upload Android emulator diagnostic",
       ]);
+    const screenshotSteps = expectStepPrefix(stepsFor("screenshots"), [
+      "Initialize Android emulator diagnostic",
+      "Checkout screenshot source",
+      "Verify screenshot source",
+      "Checkout trusted Android tooling",
+      "Setup screenshot Node environment",
+      "Setup Android toolchain",
+      "Prepare trusted Linux Android tooling",
+      "Collect Linux KVM acceleration proof",
+      "Capture phone and Wear screenshots",
+      "Upload screenshot diagnostics",
+      "Upload Android emulator diagnostic",
+    ]);
+    const screenshotCheckout = screenshotSteps[1];
+    const screenshotHead = screenshotSteps[2];
+    const screenshotNode = screenshotSteps[4];
+    const screenshots = screenshotSteps[8];
+    const screenshotArtifact = screenshotSteps[9];
 
     expect(workflow.name).toBe("Android Emulator Diagnostic");
     expect(workflow["run-name"]).toBe(
-      "Android emulator diagnostic instrumented (${{ inputs.target_sha }})",
+      "Android ${{ inputs.operation == 'screenshots' && 'screenshots' || 'emulator' }} diagnostic (${{ inputs.target_sha }})",
     );
     expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+    expect(workflow.on.workflow_dispatch.inputs.operation).toEqual({
+      description:
+        "Diagnose emulator boot or capture phone and Wear screenshots without publishing",
+      required: false,
+      type: "choice",
+      default: "boot",
+      options: ["boot", "screenshots"],
+    });
     expect(workflow.on.workflow_dispatch.inputs.target_sha).toEqual({
       description: "Exact lowercase 40-character commit SHA to diagnose",
       required: true,
@@ -503,7 +546,14 @@ describe("mobile release CI tools", () => {
     expect(job.permissions).toEqual({ contents: "read" });
     expect(job.needs).toBe("validate-target");
     expect(job["runs-on"]).toBe("ubuntu-24.04");
-    expect(job["timeout-minutes"]).toBe(25);
+    for (const [operation, timeout] of [
+      ["boot", 25],
+      ["screenshots", 40],
+    ] as const) {
+      expect(evaluateWorkflowExpression(job["timeout-minutes"], { inputs: { operation } })).toBe(
+        timeout,
+      );
+    }
     expect(job.env).toEqual({
       ANDROID_SCREENSHOT_EMULATOR_TIMEOUT_SECONDS: "180",
       AVD_NAME: "OpenClaw_Screenshots_API36",
@@ -550,6 +600,34 @@ describe("mobile release CI tools", () => {
       TARGET_SHA: "${{ inputs.target_sha }}",
     });
     expect(head?.run).toContain('test "$(git -C candidate rev-parse HEAD)" = "$TARGET_SHA"');
+    expect(screenshotCheckout).toMatchObject({
+      uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      with: {
+        ref: "${{ inputs.target_sha }}",
+        "fetch-depth": 1,
+        "persist-credentials": false,
+      },
+    });
+    expect(screenshotHead?.env).toEqual({ TARGET_SHA: "${{ inputs.target_sha }}" });
+    expect(screenshotHead?.run).toContain('test "$(git rev-parse HEAD)" = "$TARGET_SHA"');
+    expect(screenshotNode).toMatchObject({
+      uses: "./.github/actions/setup-node-env",
+      with: { "cache-mode": "off", "install-bun": "true" },
+    });
+    expect(screenshots).toMatchObject({
+      env: {
+        ANDROID_SCREENSHOT_DIAGNOSTICS: "1",
+        SIPS: "${{ runner.temp }}/openclaw-android-tools/android-sips-linux.sh",
+      },
+      run: "bash scripts/android-screenshots.sh",
+    });
+    expect(screenshotArtifact).toMatchObject({
+      uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      with: {
+        name: "android-screenshot-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}",
+        "retention-days": 7,
+      },
+    });
     expect(trustedCheckout).toMatchObject({
       uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
       with: {
