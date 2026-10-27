@@ -144,7 +144,16 @@ export function SessionLogList(props: {
       }
       publish();
     },
-    { targets: () => [list, ...(viewport() ? [viewport()!] : [])], changeTiming: "sync", fonts: true },
+    {
+      targets: () => {
+        const scroller = list.closest<HTMLElement>("main.content");
+        // Earlier Usage sections can move the list without resizing it.
+        const page = list.closest<HTMLElement>(".usage-page");
+        return [list, ...(scroller ? [scroller] : []), ...(page ? [page] : [])];
+      },
+      changeTiming: "sync",
+      fonts: true,
+    },
   );
   const items = createMemo(() => new Map(window()?.items.map((item) => [item.index, item])));
   const visibleRows = createMemo(() => {

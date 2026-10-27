@@ -25,7 +25,7 @@ function mountConversation(lines = 12, fontSize = 13) {
   document.body.append(viewport);
   const view = mountSolid(
     () => (
-      <>
+      <div class="usage-page">
         <style>{`main.content .session-log-content { font-size: ${fontSize}px; }`}</style>
         <SessionDetailPanel
           session={{ key: "synthetic-conversation", label: "Synthetic conversation" }}
@@ -51,7 +51,7 @@ function mountConversation(lines = 12, fontSize = 13) {
           contextExpanded={false}
           onClose={() => {}}
         />
-      </>
+      </div>
     ),
     { container: viewport },
   );
@@ -155,6 +155,37 @@ it("keeps the focused summary and its next native Tab target mounted during scro
   const previous = row(10)!.getBoundingClientRect();
   expect(previous.bottom).toBeGreaterThan(bounds.top);
   expect(previous.top).toBeLessThan(bounds.bottom);
+});
+
+it("keeps visible messages mounted when the preceding chart section changes height", async () => {
+  const { page } = await import("vitest/browser");
+  await page.viewport(1000, 800);
+  const { viewport, list, listOffset } = mountConversation(0);
+  viewport.style.overflowAnchor = "none";
+  const chart = viewport.querySelector<HTMLElement>(".session-detail-row")!;
+  const centeredRow = () => {
+    const bounds = viewport.getBoundingClientRect();
+    return document
+      .elementFromPoint(bounds.left + 100, bounds.top + bounds.height / 2)
+      ?.closest<HTMLElement>(".session-log-entry");
+  };
+  viewport.scrollTop = listOffset() + list().getBoundingClientRect().height / 2;
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+  await waitForSolid(() => expect(centeredRow()).toBeTruthy());
+  const originalIndex = Number(centeredRow()!.dataset.index);
+
+  chart.style.paddingTop = "1600px";
+  await waitForSolid(() => {
+    expect(centeredRow()).toBeTruthy();
+    expect(Number(centeredRow()!.dataset.index)).toBeLessThan(originalIndex);
+  });
+  chart.style.paddingTop = "";
+  await waitForSolid(() => {
+    expect(centeredRow()).toBeTruthy();
+    expect(Number(centeredRow()!.dataset.index)).toBe(originalIndex);
+  });
 });
 
 it.each([
