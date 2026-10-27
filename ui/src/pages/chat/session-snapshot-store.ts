@@ -12,6 +12,7 @@ import {
   MAX_CACHED_CHAT_SESSIONS,
   setSessionCacheValue,
 } from "./session-cache.ts";
+import { detailsSnapshotSchema } from "./session-details-snapshot-schema.ts";
 import {
   MAX_CACHED_CHAT_SNAPSHOT_WEIGHT,
   MAX_CACHED_CHAT_WEIGHT,
@@ -84,6 +85,7 @@ const paginationSchema = {
 const permissionModeSchema = json.enumeration(["read-only", "guarded", "workspace", "full"]);
 const snapshotSchema = json.object(
   {
+    details: detailsSnapshotSchema,
     composer: json.optional(
       json.nullable(
         json.object({
