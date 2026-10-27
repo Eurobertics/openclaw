@@ -19,9 +19,6 @@ const sharedInteractionEntries = new Set([
 ]);
 const chatInteractionEntries = new Set([
   "ui/src/pages/chat/chat-composer-capability-host.tsx",
-  // Run rows share the route download; only their first rendered row evaluates them.
-  "ui/src/pages/chat/components/chat-agent-run-frame.tsx",
-  "ui/src/pages/chat/components/chat-message-stream-view.tsx",
   "ui/src/pages/chat/components/chat-context-breakdown.tsx",
   "ui/src/components/markdown-live.ts",
   // Cached environment facts reveal without another network round trip.
