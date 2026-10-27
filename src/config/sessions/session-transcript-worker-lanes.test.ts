@@ -16,6 +16,8 @@ import {
   maintenanceLane,
   projectionLane,
   rotateDatabaseWorkers,
+  targetDiscoveryLane,
+  transcriptSearchLane,
   withSessionHistoryWorkerReadCandidates,
 } from "./session-transcript-worker-resources.js";
 import {
@@ -308,7 +310,30 @@ it("hands admitted read deadlines to the worker pool", async () => {
   }
 });
 
-it("retains branch reads across four-minute gaps and retires after five idle minutes", async () => {
+it("retains only history and search lanes after background readers become idle", async () => {
+  observed.run.mockResolvedValue(absent);
+  const lanes = [
+    historyLane,
+    transcriptSearchLane,
+    projectionLane,
+    maintenanceLane,
+    targetDiscoveryLane,
+  ];
+  for (const lane of lanes) {
+    await input().read(lane);
+  }
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(lanes.filter((lane) => !isSessionHistoryWorkerCold(lane))).toEqual([
+    historyLane,
+    transcriptSearchLane,
+  ]);
+  for (const lane of lanes.slice(2)) {
+    await expect(input().read(lane)).resolves.toBe(false);
+    expect(isSessionHistoryWorkerCold(lane)).toBe(false);
+  }
+});
+
+it("reuses recent branch reads and retires after thirty idle seconds", async () => {
   const { database, scope } = input();
   const request = {
     database,
@@ -327,12 +352,12 @@ it("retains branch reads across four-minute gaps and retires after five idle min
   const signal = new AbortController().signal;
   try {
     await expect(runSessionBranchSummaryWorkerRequest(request, signal)).resolves.toEqual(result);
-    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(observed.rotate).not.toHaveBeenCalled();
 
     await expect(runSessionBranchSummaryWorkerRequest(request, signal)).resolves.toEqual(result);
     expect(independentRead).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+    await vi.advanceTimersByTimeAsync(30_000 - 1);
     expect(observed.rotate).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(observed.rotate).toHaveBeenCalledOnce();
@@ -342,21 +367,34 @@ it("retains branch reads across four-minute gaps and retires after five idle min
   }
 });
 
-it.each([historyLane, projectionLane, maintenanceLane])(
+it.each([
+  { lane: historyLane, name: historyLane.name, idleMs: 300_000, siblingLane: transcriptSearchLane },
+  {
+    lane: projectionLane,
+    name: projectionLane.name,
+    idleMs: 30_000,
+    siblingLane: targetDiscoveryLane,
+  },
+  {
+    lane: maintenanceLane,
+    name: maintenanceLane.name,
+    idleMs: 30_000,
+    siblingLane: targetDiscoveryLane,
+  },
+])(
   "keeps $name idle retirement anchored to reads across database cleanup",
-  async (lane) => {
+  async ({ lane, idleMs, siblingLane }) => {
     observed.run.mockResolvedValue(absent);
     await input().read(lane);
     const resource = observed.resources.at(-1)!;
-    const siblingLane = lane === historyLane ? maintenanceLane : historyLane;
     await input().read(siblingLane);
     const siblingResource = observed.resources.at(-1)!;
 
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await vi.advanceTimersByTimeAsync(idleMs * 0.4);
     await siblingResource.close();
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await vi.advanceTimersByTimeAsync(idleMs * 0.4);
     await resource.close();
-    await vi.advanceTimersByTimeAsync(60_000 - 1);
+    await vi.advanceTimersByTimeAsync(idleMs * 0.2 - 1);
     expect(isSessionHistoryWorkerCold(lane)).toBe(false);
     expect(isSessionHistoryWorkerCold(siblingLane)).toBe(false);
 
@@ -366,41 +404,41 @@ it.each([historyLane, projectionLane, maintenanceLane])(
   },
 );
 
-it.each([historyLane, maintenanceLane])(
-  "dedupes $name prewarm custody without extending idle retirement",
-  async (lane) => {
-    await rotateDatabaseWorkers(lane);
-    observed.rotate.mockClear();
-    const request = input();
-    const reply = createDeferredCore<unknown>();
-    observed.run.mockReturnValueOnce(reply.promise);
-    expect(isSessionHistoryWorkerCold(lane)).toBe(true);
-    const first = prewarmSessionHistoryWorker(request.database, lane);
-    const second = prewarmSessionHistoryWorker(request.database, lane);
-    expect(observed.run).toHaveBeenCalledOnce();
-    expect(observed.run.mock.calls[0]?.[0]).toMatchObject({
-      kind: "prewarm",
-    });
-    expect(lane.pending).toBe(1);
-    expect(isSessionHistoryWorkerCold(lane)).toBe(false);
-    reply.resolve(prewarmed);
-    await Promise.all([first, second]);
-    expect(lane.pending).toBe(0);
-    expect(observed.unregister).not.toHaveBeenCalled();
+it.each([
+  { lane: historyLane, name: historyLane.name, idleMs: 300_000 },
+  { lane: maintenanceLane, name: maintenanceLane.name, idleMs: 30_000 },
+])("dedupes $name prewarm custody without extending idle retirement", async ({ lane, idleMs }) => {
+  await rotateDatabaseWorkers(lane);
+  observed.rotate.mockClear();
+  const request = input();
+  const reply = createDeferredCore<unknown>();
+  observed.run.mockReturnValueOnce(reply.promise);
+  expect(isSessionHistoryWorkerCold(lane)).toBe(true);
+  const first = prewarmSessionHistoryWorker(request.database, lane);
+  const second = prewarmSessionHistoryWorker(request.database, lane);
+  expect(observed.run).toHaveBeenCalledOnce();
+  expect(observed.run.mock.calls[0]?.[0]).toMatchObject({
+    kind: "prewarm",
+  });
+  expect(lane.pending).toBe(1);
+  expect(isSessionHistoryWorkerCold(lane)).toBe(false);
+  reply.resolve(prewarmed);
+  await Promise.all([first, second]);
+  expect(lane.pending).toBe(0);
+  expect(observed.unregister).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
-    await prewarmSessionHistoryWorker(request.database, lane);
-    expect(observed.run).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(observed.rotate).toHaveBeenCalledOnce();
-    expect(observed.unregister).toHaveBeenCalledOnce();
-    expect(isSessionHistoryWorkerCold(lane)).toBe(true);
+  await vi.advanceTimersByTimeAsync(idleMs - 1);
+  await prewarmSessionHistoryWorker(request.database, lane);
+  expect(observed.run).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(observed.rotate).toHaveBeenCalledOnce();
+  expect(observed.unregister).toHaveBeenCalledOnce();
+  expect(isSessionHistoryWorkerCold(lane)).toBe(true);
 
-    observed.run.mockResolvedValue(prewarmed);
-    await prewarmSessionHistoryWorker(request.database, lane);
-    expect(observed.run).toHaveBeenCalledTimes(2);
-  },
-);
+  observed.run.mockResolvedValue(prewarmed);
+  await prewarmSessionHistoryWorker(request.database, lane);
+  expect(observed.run).toHaveBeenCalledTimes(2);
+});
 
 it("rearms idle retirement after expired and explicit native cleanup both fail", async () => {
   observed.explicitSqliteCloseReleasesNativeResources = false;
