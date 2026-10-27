@@ -244,7 +244,6 @@ it.each([
         const delivery = prepareSteeringDelivery({
           agentId: "main",
           sessionKey,
-          sessionId,
           storePath,
           entry,
           assertCurrent: () => incomingAuthority.assertCurrent(),

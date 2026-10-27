@@ -17,6 +17,7 @@ import {
   resolveSqliteReadScope,
   toDatabaseOptions,
 } from "../../config/sessions/session-accessor.sqlite-scope.js";
+import * as sessionTranscriptEvent from "../../config/sessions/session-transcript-event.js";
 import { resolveStateDir } from "../../config/state-dir.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { readConversationDeliveryStateForTest } from "../../gateway/conversation-delivery.test-support.js";
@@ -671,14 +672,9 @@ describe("conversation turn capture", () => {
 
   it("completes the durable reply when optional audit persistence throws", async () => {
     const setup = await setupReefConversation();
-    const database = openOpenClawAgentDatabase(
-      toDatabaseOptions(resolveSqliteReadScope(setup.scope)),
-    );
-    database.db.exec(`
-      CREATE TRIGGER refuse_reply_audit BEFORE INSERT ON transcript_events
-      WHEN json_extract(NEW.event_json, '$.customType') = 'openclaw.conversation-turn-reply'
-      BEGIN SELECT RAISE(ABORT, 'audit store unavailable'); END;
-    `);
+    const appendAudit = vi
+      .spyOn(sessionTranscriptEvent, "appendPreparedTranscriptEvent")
+      .mockRejectedValueOnce(new Error("audit store unavailable"));
     const operationId = "turn-audit-failure";
     const outboundMessageId = "reef-outbound-audit-failure";
     const pending = await registerCapture(setup, operationId, {
@@ -697,6 +693,16 @@ describe("conversation turn capture", () => {
         ),
       }),
     ).resolves.toBe(true);
+    expect(appendAudit).toHaveBeenCalledOnce();
+    expect(appendAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: setup.sessionId, sessionKey: setup.sessionKey }),
+      expect.objectContaining({
+        id: `conversation-turn-reply-${operationId}`,
+        customType: "openclaw.conversation-turn-reply",
+        appendMode: "side",
+      }),
+      expect.any(Function),
+    );
     const reply = await pending.wait();
     expect(reply).toMatchObject({ text: "reply survives audit failure" });
     expect(reply).not.toHaveProperty("transcriptArtifactId");

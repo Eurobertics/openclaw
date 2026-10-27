@@ -486,9 +486,10 @@ it.each([
       await f.prepare(command);
       expectCommitted(f.mutate(command));
       expect(f.read(target)).toMatchObject({
-        entry: { sessionId, ...lifecycle },
+        entry: { sessionId, startedAt: 2 },
         pendingInputs: [],
       });
+      expect(f.read(target)?.entry?.status).toBeUndefined();
       expect(
         readTranscriptEventRows(f.database, sessionId).map((row) => JSON.parse(row.eventJson)),
       ).toMatchObject([

@@ -230,7 +230,7 @@ describe("Code Mode agent-loop error recovery", () => {
       resetProcessRegistryForTests();
       await state.cleanup();
     });
-    const command = `${JSON.stringify(globalThis.process.execPath)} -e "process.stdin.once('data', () => { process.stdout.write('same-process-recovered'); process.stdin.destroy(); })"`;
+    const command = `${JSON.stringify(globalThis.process.execPath)} -e "process.stdin.once('data', () => process.stdout.write('same-process-recovered', () => process.stdin.destroy()))"`;
     const shell = createExecTool({
       host: "gateway",
       security: "full",

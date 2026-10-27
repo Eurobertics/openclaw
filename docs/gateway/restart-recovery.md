@@ -60,10 +60,12 @@ bounded grace. A long model stream, tool call, or background process does not ge
 a full run-completion drain before shutdown.
 
 An external stop or restart logs bounded-grace leftovers, such as a service-child
-cleanup deadline, lifetime sidecar, or retained plugin runtime, and exits with
-status `0`. A runtime that still owns resources is never reused for an in-process
-restart: the process exits so its supervisor can start a fresh Gateway. A real
-persistence failure still reports failure.
+cleanup deadline, lifetime sidecar, or retained plugin runtime, and returns with
+status `0` unless required persistence failed. A runtime that still owns resources
+is never reused for an in-process restart. Node exits naturally after owned handles
+close; the native shutdown watchdog kills the process if leaked handles keep it
+alive past the deadline. That signal exit is accepted, and the supervisor starts
+a fresh Gateway.
 
 Reversible suspension and host freeze preparation keep their own semantics. A
 suspension does not mark sessions or abort them. Preparation with `drain: true`
@@ -304,6 +306,10 @@ Startup clears each marker and admits exactly one new input through the normal
 session-event path:
 
 > The Gateway restarted while you were working. Resume your work: check the current state of anything that was in progress (files, processes, subagents, external actions) before repeating it, then continue.
+
+If the session had running background exec processes, that same input also says:
+
+> Background exec processes were stopped; rerun them if still needed.
 
 This is a new input, not a replay of the original user prompt or unfinished tool
 call. Later model requests can contain the text as conversation history. The
