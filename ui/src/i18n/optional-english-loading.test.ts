@@ -4,14 +4,14 @@ import { useLazyEnglishTest } from "./lazy-english.test-support.ts";
 
 const loadI18n = useLazyEnglishTest();
 
-it("keeps chat session actions readable without loading the session management catalog", async () => {
+it("keeps sidebar and chat actions readable until the session management dialog loads", async () => {
   const { en, manager } = await loadI18n({ sessionsView: { goal: "Ziel" } });
   const sessionsView = en.sessionsView;
   await manager.setLocale("de");
   expect(manager.t("sessionsView.searchGroups")).toBe("sessionsView.searchGroups");
 
   await Promise.all([
-    import("../components/app-sidebar-catalog-menu.tsx"),
+    import("../components/app-sidebar.tsx"),
     import("../components/session-menu-access.ts"),
     import("../lib/chat/complete-history.ts"),
     import("../lib/sessions/session-archive-reason.ts"),
@@ -21,6 +21,8 @@ it("keeps chat session actions readable without loading the session management c
   ]);
 
   expect(manager.t("sessionsView.searchGroups")).toBe("sessionsView.searchGroups");
+  expect(manager.t("sessionsView.personalGroupNew")).toBe("New personal group");
+  expect(manager.t("sessionsView.personalGroupEdit")).toBe("sessionsView.personalGroupEdit");
   expect(manager.t("sessionsView.archiveReasonManual")).toBe("Archived manually");
   expect(manager.t("sessionsView.stopCloudWorkerConfirm", { session: "Build" })).toBe(
     'Stop the cloud worker for "Build"?',
@@ -28,8 +30,9 @@ it("keeps chat session actions readable without loading the session management c
   expect(manager.t("sessionsView.goal")).toBe("Ziel");
   expect(en.sessionsView).toBe(sessionsView);
 
-  (await import("./locales/en-session-organization.ts")).registerSessionOrganizationEnglish();
+  await import("../components/personal-session-group-dialog-view.tsx");
   expect(manager.t("sessionsView.searchGroups")).toBe("Search groups");
+  expect(manager.t("sessionsView.personalGroupEdit")).toBe("Edit personal group");
   expect(manager.t("sessionsView.goal")).toBe("Ziel");
   expect(manager.getLocale()).toBe("de");
   expect(en.sessionsView).toBe(sessionsView);

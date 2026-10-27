@@ -7,22 +7,20 @@ import {
   controlUiStableChunkName,
 } from "../../config/control-ui-chunking.ts";
 
+const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
+
 describe("Control UI build chunking", () => {
   it("keeps optional parsing and device signing outside the eager graph", async () => {
-    const zod = new URL("../../node_modules/zod/index.js", import.meta.url).pathname;
-    const json5 = new URL("../../node_modules/json5/dist/index.mjs", import.meta.url).pathname;
-    const gatewayMethods = new URL("../lib/gateway-methods.ts", import.meta.url).pathname;
-    const solid = new URL("../../node_modules/solid-js/dist/solid.js", import.meta.url).pathname;
-    const verdict = new URL(
-      "../../node_modules/@solidjs/signals/dist/prod/core/verdict.js",
-      import.meta.url,
-    ).pathname;
-    const signer = new URL("../../node_modules/@noble/ed25519/index.js", import.meta.url).pathname;
-    const markdown = new URL("../../node_modules/markdown-it/dist/markdown-it.mjs", import.meta.url)
-      .pathname;
-    const entities = new URL("../../node_modules/entities/dist/index.js", import.meta.url).pathname;
-    const motion = new URL("../components/mascot-animator.ts", import.meta.url).pathname;
-    const channels = new URL("../lib/channels/index.ts", import.meta.url).pathname;
+    const zod = modulePath("../../node_modules/zod/index.js");
+    const json5 = modulePath("../../node_modules/json5/dist/index.mjs");
+    const gatewayMethods = modulePath("../lib/gateway-methods.ts");
+    const solid = modulePath("../../node_modules/solid-js/dist/solid.js");
+    const verdict = modulePath("../../node_modules/@solidjs/signals/dist/prod/core/verdict.js");
+    const signer = modulePath("../../node_modules/@noble/ed25519/index.js");
+    const markdown = modulePath("../../node_modules/markdown-it/dist/markdown-it.mjs");
+    const entities = modulePath("../../node_modules/entities/dist/index.js");
+    const motion = modulePath("../components/mascot-animator.ts");
+    const channels = modulePath("../lib/channels/index.ts");
     const entry = "\0config-parser-fixture";
     const sources = new Map([
       [
@@ -102,7 +100,6 @@ describe("Control UI build chunking", () => {
   });
 
   it("keeps routes and optional code lazy with one shared stylesheet", async () => {
-    const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
     const chat = modulePath("../pages/chat/chat-pane.tsx");
     const newSession = modulePath("../pages/new-session/new-session-page.tsx");
     const optional = modulePath("../components/assistant-panel-content-solid.tsx");
@@ -362,18 +359,12 @@ describe("Control UI build chunking", () => {
       ],
       ["/tmp/openclaw-pnpm-node-modules/@noble/ed25519/index.js", "device-signing-runtime"],
       ["/repo/ui/src/lib/gateway-methods.ts", undefined],
-      [
-        new URL("../components/sidebar-update-card.tsx", import.meta.url).pathname,
-        "sidebar-update-runtime",
-      ],
-      [
-        new URL("../styles/sidebar-update-card.css", import.meta.url).pathname,
-        "sidebar-update-runtime",
-      ],
-      [new URL("../pages/chat/route-entry.ts", import.meta.url).pathname, "chat-route-entry"],
-      [new URL("../pages/cron/cron-page.tsx", import.meta.url).pathname, "cron-page"],
-      [new URL("../pages/plugins/plugins-page.tsx", import.meta.url).pathname, "plugins-page"],
-      [new URL("../components/markdown-parser.ts", import.meta.url).pathname, "markdown-runtime"],
+      [modulePath("../components/sidebar-update-card.tsx"), "sidebar-update-runtime"],
+      [modulePath("../styles/sidebar-update-card.css"), "sidebar-update-runtime"],
+      [modulePath("../pages/chat/route-entry.ts"), "chat-route-entry"],
+      [modulePath("../pages/cron/cron-page.tsx"), "cron-page"],
+      [modulePath("../pages/plugins/plugins-page.tsx"), "plugins-page"],
+      [modulePath("../components/markdown-parser.ts"), "markdown-runtime"],
       ["/repo/ui/src/components/config-form.shared.ts", undefined],
       ["/repo/ui/src/lib/clipboard.ts", undefined],
       ["/repo/ui/src/build-info.ts", undefined],
@@ -387,8 +378,7 @@ describe("Control UI build chunking", () => {
   });
 
   it("lets snapshot prewarming load independently of the measured boot groups", () => {
-    const database = new URL("../pages/chat/session-snapshot-database.ts", import.meta.url)
-      .pathname;
+    const database = modulePath("../pages/chat/session-snapshot-database.ts");
     const stableGroup = controlUiCodeSplitting.groups.find(
       (group) =>
         typeof group.name === "function" && group.name(database) === "session-snapshot-database",
@@ -417,7 +407,7 @@ describe("Control UI build chunking", () => {
     const bootGroup = sharedGroup as {
       test: (id: string) => boolean;
     };
-    const repoRoot = new URL("../../..", import.meta.url).pathname.replace(/\/$/, "");
+    const repoRoot = modulePath("../../..").replace(/\/$/, "");
     // Representative always-loaded boot surface and a lazy island that must
     // keep its own chunk (terminal runtime is not part of the default boot).
     expect(bootGroup.test(`${repoRoot}/ui/src/components/app-sidebar.tsx`)).toBe(true);
