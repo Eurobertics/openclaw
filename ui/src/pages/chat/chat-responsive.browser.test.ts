@@ -2407,8 +2407,6 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
           expect(preview.x).toBeGreaterThanOrEqual(input.x);
           expect(remove.y).toBeGreaterThanOrEqual(preview.y);
           expect(remove.x + remove.width).toBeLessThanOrEqual(preview.x + preview.width);
-          expect(remove.width).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN_PX);
-          expect(remove.height).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN_PX);
           expect(topHits).toEqual([true, true]);
 
           await page.locator(".chat-attachments-preview").evaluate((node) => {

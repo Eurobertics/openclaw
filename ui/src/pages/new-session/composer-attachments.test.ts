@@ -94,7 +94,8 @@ it.each(["owner", "tile"] as const)(
       new ProgressEvent("progress", { lengthComputable: true, loaded: 5, total: 10 }),
     );
     expect(
-      tiles[0]?.querySelector<HTMLElement>(".chat-attachment-loading > span")?.style.transform,
+      tiles[0]?.querySelector<HTMLElement>(".chat-attachment-loading__line > span")?.style
+        .transform,
     ).toBe("scaleX(0.5)");
     expect(
       tiles[1]?.querySelector(".chat-attachment-loading")?.getAttribute("data-indeterminate"),

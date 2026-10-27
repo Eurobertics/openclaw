@@ -324,7 +324,11 @@ describe("chat attachment reading", () => {
     expect(reads.pendingReads).toBe(1);
     const status = container.querySelector(".chat-attachments-status");
     expect(status?.textContent).toContain("Preparing 1 attachment");
-    expect(container.querySelectorAll('.chat-attachment-thumb[aria-busy="true"]')).toHaveLength(1);
+    await waitForFast(() =>
+      expect(container.querySelectorAll('.chat-attachment-thumb[aria-busy="true"]')).toHaveLength(
+        1,
+      ),
+    );
     const pendingTile = container.querySelector(".chat-attachment-thumb");
     expect(status?.querySelector(".btn__spinner")).toBeNull();
     expect(status?.getAttribute("role")).toBe("status");
@@ -349,7 +353,8 @@ describe("chat attachment reading", () => {
     );
     expect(container.querySelector(".chat-attachment-thumb")).toBe(pendingTile);
     expect(
-      pendingTile?.querySelector<HTMLElement>(".chat-attachment-loading > span")?.style.transform,
+      pendingTile?.querySelector<HTMLElement>(".chat-attachment-loading__line > span")?.style
+        .transform,
     ).toBe("scaleX(0.5)");
     finishRead(reader, `data:image/png;base64,${btoa("attachment proof")}`, true);
 
