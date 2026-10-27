@@ -377,27 +377,50 @@ class PackagedRuntimeAbiTest(unittest.TestCase):
                 return "ELF Header:\n  Machine: Advanced Micro Devices X86-64\n"
             return version_output(needs=("GLIBC_2.36", "GLIBCXX_3.4.30"))
 
-        with mock.patch.object(smoke, "run_readelf", side_effect=inspect):
-            report = self.collect(version_output(needs=("GLIBC_2.17",)))
-        self.assertEqual(report["files"][-1], {
-            "path": source_path,
-            "source": "appdir",
-            "requires": {"GLIBC": ["2.36"], "GLIBCXX": ["3.4.30"], "CXXABI": [], "GCC": []},
-        })
-        self.assertNotIn("openclaw-bun-abi-", json.dumps(report))
-        with self.assertRaisesRegex(RuntimeError, re.escape(source_path) + r" requires GLIBC_2.36"):
-            smoke.enforce_abi_limits(report)
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                if legacy:
+                    manifest = resource.parent.parent / "manifest.json"
+                    value = json.loads(manifest.read_text())
+                    del value["runtime"]
+                    manifest.write_text(json.dumps(value))
+                with mock.patch.object(smoke, "run_readelf", side_effect=inspect):
+                    report = self.collect(version_output(needs=("GLIBC_2.17",)))
+                self.assertEqual(report["runtime"], {"flavor": "jit", "executable": "bin/bun"})
+                self.assertEqual(report["files"][-1], {
+                    "path": source_path,
+                    "source": "appdir",
+                    "requires": {"GLIBC": ["2.36"], "GLIBCXX": ["3.4.30"], "CXXABI": [], "GCC": []},
+                })
+                self.assertNotIn("openclaw-bun-abi-", json.dumps(report))
+                with self.assertRaisesRegex(RuntimeError, re.escape(source_path) + r" requires GLIBC_2.36"):
+                    smoke.enforce_abi_limits(report)
 
     def test_enveloped_bun_refuses_damaged_prefix_and_decoded_hash(self):
         resource = self.write_bundled_bun()
-        for payload, error in (
-            (b"BROKEN\n\x7fELFsynthetic bun", "invalid runtime envelope"),
-            (b"OPENCLAW-BUN-RUNTIME-V1\n\x7fELFtampered bun", "runtime checksum mismatch"),
-        ):
-            with self.subTest(error=error):
-                resource.write_bytes(payload)
-                with self.assertRaisesRegex(RuntimeError, error):
-                    self.collect(version_output())
+        for legacy in (False, True):
+            if legacy:
+                manifest = resource.parent.parent / "manifest.json"
+                value = json.loads(manifest.read_text())
+                del value["runtime"]
+                manifest.write_text(json.dumps(value))
+            for payload, error in (
+                (b"BROKEN\n\x7fELFsynthetic bun", "invalid runtime envelope"),
+                (b"OPENCLAW-BUN-RUNTIME-V1\n\x7fELFtampered bun", "runtime checksum mismatch"),
+            ):
+                with self.subTest(legacy=legacy, error=error):
+                    resource.write_bytes(payload)
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        self.collect(version_output())
+
+    def test_explicit_invalid_runtime_is_not_a_historical_manifest(self):
+        resource = self.write_bundled_bun()
+        manifest = resource.parent.parent / "manifest.json"
+        value = json.loads(manifest.read_text())
+        value["runtime"] = None
+        manifest.write_text(json.dumps(value))
+        with self.assertRaisesRegex(RuntimeError, "invalid runtime manifest"):
+            self.collect(version_output())
 
     def test_enveloped_bun_rejects_a_different_architecture(self):
         self.write_bundled_bun()

@@ -221,7 +221,10 @@ def collect_bundled_runtime_report(root, readelf, architecture):
         if root.is_symlink() or manifest_path.is_symlink():
             raise ValueError("redirected runtime resource")
         manifest = json.loads(manifest_path.read_text())
-        runtime = manifest["runtime"]
+        # Current release tooling also verifies tags staged before runtime flavors.
+        runtime = manifest["runtime"] if "runtime" in manifest else {
+            "flavor": "jit", "executable": "bin/bun"
+        }
         files = manifest["files"]
         if (manifest["platform"] != "linux" or runtime["flavor"] not in ("jit", "aot")
                 or not isinstance(files, dict) or runtime["executable"] not in files):
