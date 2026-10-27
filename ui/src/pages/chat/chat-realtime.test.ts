@@ -682,8 +682,8 @@ it("retires callback ownership before stopping a session", async () => {
   });
 });
 
-it.each(["stop", "route", "disconnect"] as const)(
-  "prepares gesture audio synchronously and rejects a %s during the lazy runtime load",
+it.each(["stop", "route", "disconnect", "superseded", "replacement"] as const)(
+  "prepares gesture audio synchronously and admits only the current startup after %s",
   async (change) => {
     type Runtime = typeof import("./talk/chat-actions-runtime.ts");
     const loaded = createDeferred<Runtime>();
@@ -695,16 +695,24 @@ it.each(["stop", "route", "disconnect"] as const)(
       return loaded.promise;
     });
     const starting = state.toggleRealtimeTalk();
+    let replacement: Promise<void> | undefined;
     try {
       expect(prepareSpy).toHaveBeenCalledOnce();
       expect(read().realtimeTalkStatus).toBe("connecting");
       await loading.promise;
-      if (change === "stop") {
+      if (change === "stop" || change === "replacement") {
         await state.toggleRealtimeTalk();
+        if (change === "replacement") {
+          replacement = state.toggleRealtimeTalk();
+        }
       } else if (change === "route") {
         state.sessionKey = "another-session";
-      } else {
+      } else if (change === "disconnect") {
         state.connected = false;
+      } else {
+        const superseded = prepareSpy.mock.calls[0]?.[1];
+        expect(superseded).toBeTypeOf("function");
+        superseded?.();
       }
       loaded.resolve({
         startChatRealtimeSession,
@@ -712,10 +720,11 @@ it.each(["stop", "route", "disconnect"] as const)(
         switchRealtimeTalkCamera: vi.fn(),
       });
       await starting;
-      expect(startChatRealtimeSession).not.toHaveBeenCalled();
+      await replacement;
+      expect(startChatRealtimeSession).toHaveBeenCalledTimes(change === "replacement" ? 1 : 0);
       expect(startSpy).not.toHaveBeenCalled();
       expect(read().realtimeTalkSession).toBeNull();
-      expect(read().realtimeTalkActive).toBe(false);
+      expect(read().realtimeTalkActive).toBe(change === "replacement");
     } finally {
       vi.doUnmock("./talk/chat-actions-runtime.ts");
     }
