@@ -145,7 +145,7 @@ describe("Agents tools catalog read", () => {
     expect(
       view.container.querySelector<HTMLButtonElement>(".agent-tools-buttons button")?.disabled,
     ).toBe(false);
-    expect(view.container.querySelector(".agent-tool-card")).not.toBeNull();
+    expect(view.container.querySelector(".agent-tools-group")).not.toBeNull();
     expect(view.container.querySelector("openclaw-github-identity")).toBe(identityHost);
 
     view.page.read().agentSkills.onFilterChange("unrelated filter");
@@ -179,7 +179,9 @@ describe("Agents tools catalog read", () => {
     second.resolve(catalog("main", "read"));
     await waitForSolid(() => {
       expect(view.container.textContent).not.toContain("Showing built-in fallback list instead.");
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe("read");
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("read");
     });
     expect(view.container.querySelector("openclaw-github-identity")).toBe(identityHost);
     const previewLink = view.container.querySelector<HTMLAnchorElement>(
@@ -187,7 +189,9 @@ describe("Agents tools catalog read", () => {
     );
     expect(previewLink).not.toBeNull();
     previewLink!.click();
-    expect(view.container.querySelector<HTMLDetailsElement>("#agent-tool-read")?.open).toBe(true);
+    await waitForSolid(() =>
+      expect(view.container.querySelector<HTMLDetailsElement>("#agent-tool-read")?.open).toBe(true),
+    );
 
     view.setPanel("files");
     view.setPanel("tools");
@@ -198,9 +202,9 @@ describe("Agents tools catalog read", () => {
     const read = vi.fn(async () => catalog("main", "cached-tool"));
     const view = await mountCatalog(read);
     await waitForSolid(() =>
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe(
-        "cached-tool",
-      ),
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("cached-tool"),
     );
 
     emitGatewaySnapshot(view.currentGateway, snapshot(view.client, false));
@@ -208,9 +212,9 @@ describe("Agents tools catalog read", () => {
     view.context.settingsAgentSelection.set("main");
     await waitForSolid(() => {
       expect(view.catalogCalls()).toHaveLength(1);
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe(
-        "cached-tool",
-      );
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("cached-tool");
     });
   });
 
@@ -232,9 +236,9 @@ describe("Agents tools catalog read", () => {
     await waitForSolid(() => expect(view.catalogCalls()).toHaveLength(2));
     second.resolve(catalog("main", "recovered-tool"));
     await waitForSolid(() => {
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe(
-        "recovered-tool",
-      );
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("recovered-tool");
       expect(view.container.textContent).not.toContain("Showing built-in fallback list instead.");
     });
   });
@@ -263,9 +267,9 @@ describe("Agents tools catalog read", () => {
     await waitForSolid(() => expect(view.catalogCalls()).toHaveLength(2));
     current.resolve(catalog("main", "current-tool"));
     await waitForSolid(() =>
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe(
-        "current-tool",
-      ),
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("current-tool"),
     );
     if (outcome === "success") {
       old.resolve(catalog("main", "stale-tool"));
@@ -274,9 +278,9 @@ describe("Agents tools catalog read", () => {
     }
     await old.promise.catch(() => {});
     await waitForSolid(() => {
-      expect(view.container.querySelector(".agent-tool-title")?.textContent?.trim()).toBe(
-        "current-tool",
-      );
+      expect(
+        view.container.querySelector(".agent-tools-group__preview .mono")?.textContent?.trim(),
+      ).toBe("current-tool");
       expect(view.container.textContent).not.toContain("stale-tool");
       expect(view.container.textContent).not.toContain("Showing built-in fallback list instead.");
     });
