@@ -66,7 +66,9 @@ const declarations = (rule: Rule) =>
 function readRule(rules: Rule[], selector: string) {
   return declarations(
     required(
-      rules.find((rule) => rule.selectors.includes(selector)),
+      rules.find((rule) =>
+        rule.selectors.some((candidate) => candidate.replace(/\s+/gu, " ") === selector),
+      ),
       selector,
     ),
   );
@@ -165,7 +167,7 @@ describe("Control UI theme contrast", () => {
       forwarded: () =>
         tinted(
           light
-            ? lightRoot + ".chat-group--forwarded.chat-group--sender-tint .chat-bubble"
+            ? lightRoot + ".chat-group.chat-group--forwarded.chat-group--sender-tint .chat-bubble"
             : sender,
         ),
     };

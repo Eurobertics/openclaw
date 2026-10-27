@@ -437,6 +437,10 @@
   color: color-mix(in srgb, var(--chat-sender-name-color, var(--muted)) 60%, var(--text));
 }
 
+:where(.chat-group.user.chat-group--sender-tint) .chat-sender-name.person-activity-link {
+  color: var(--chat-sender-name-color);
+}
+
 .chat-sender-name.person-activity-link:hover,
 .chat-sender-name.person-activity-link:focus-visible {
   color: color-mix(in srgb, var(--chat-sender-name-color, var(--muted)) 50%, var(--text));
@@ -1482,9 +1486,8 @@ button.chat-reply-attribution__target:disabled {
   box-shadow: none;
 }
 
-/* Sender identity keeps its hue while the tint is composed on the theme's
-   canvas. Light mode's former 94% lightness was this same 12% tint over white;
-   mixing the actual canvas avoids a detached pastel on colored themes. */
+/* Sender identity keeps its hue. Dark tints sit on the canvas; light tints
+   use the raised surface so the canvas does not muddy the pigment. */
 .chat-group:is(.user, .chat-group--forwarded).chat-group--sender-tint .chat-bubble {
   --chat-sender-color: hsl(var(--chat-sender-hue) 48% 42%);
   --chat-bubble-background: color-mix(in srgb, var(--chat-sender-color) 16%, var(--bg-content));
@@ -1506,9 +1509,11 @@ button.chat-reply-attribution__target:disabled {
 }
 
 :where(:root[data-theme-mode="light"]) .chat-group.user.chat-group--sender-tint .chat-bubble,
-:where(:root[data-theme-mode="light"]) .chat-group--forwarded.chat-group--sender-tint .chat-bubble {
+:where(:root[data-theme-mode="light"])
+  .chat-group.chat-group--forwarded.chat-group--sender-tint
+  .chat-bubble {
   --chat-sender-color: hsl(var(--chat-sender-hue) 65% 50%);
-  --chat-bubble-background: color-mix(in srgb, var(--chat-sender-color) 12%, var(--bg-content));
+  --chat-bubble-background: color-mix(in srgb, var(--chat-sender-color) 12%, var(--bg-elevated));
 }
 
 /* Keep tinted user turns borderless when the generic light hover skin applies. */

@@ -268,3 +268,102 @@ it.each([1440, 1024, 390].flatMap((width) => ["light", "dark"].map((theme) => ({
     }
   },
 );
+
+it.each(["light", "dark"])(
+  "keeps viewer and forwarded messages on their theme surfaces (%s)",
+  async (mode) => {
+    const root = document.body.appendChild(document.createElement("div"));
+    root.className = "chat";
+    const documentRoot = document.documentElement;
+    const previousTheme = documentRoot.getAttribute("data-theme");
+    const previousMode = documentRoot.getAttribute("data-theme-mode");
+    documentRoot.dataset.theme = mode;
+    documentRoot.dataset.themeMode = mode;
+    const style = documentRoot.style;
+    const previousAccent = style.getPropertyValue("--accent");
+    onTestFinished(() => {
+      root.remove();
+      if (previousTheme === null) {
+        documentRoot.removeAttribute("data-theme");
+      } else {
+        documentRoot.setAttribute("data-theme", previousTheme);
+      }
+      if (previousMode === null) {
+        documentRoot.removeAttribute("data-theme-mode");
+      } else {
+        documentRoot.setAttribute("data-theme-mode", previousMode);
+      }
+      if (previousAccent) {
+        style.setProperty("--accent", previousAccent);
+      } else {
+        style.removeProperty("--accent");
+      }
+    });
+    const [viewer, setViewer] = createSignal("alice");
+    const entries = (
+      [
+        ["alice", { type: "profile", id: "alice" }, false],
+        ["bob", { type: "profile", id: "bob" }, true],
+        ["legacy", undefined, true],
+      ] as const
+    ).map(([id, identity, owner]) => ({
+      kind: "message" as const,
+      key: id,
+      message: {
+        role: "user",
+        content: "A participant message.",
+        timestamp: 1000,
+        __openclaw: {
+          senderId: id === "legacy" ? "alice" : id,
+          senderName: id,
+          senderIdentity: identity,
+          senderIsOwner: owner,
+        },
+      },
+    }));
+    const groups = groupMessages(entries).filter((item) => item.kind === "group");
+    groups.push(
+      group("source", "assistant", "A forwarded message.", {
+        senderSession: { sessionKey: "agent:research:main", agentId: "research" },
+      }),
+    );
+    mountSolid(
+      () => (
+        <div class="chat-thread">
+          <For each={groups}>
+            {(item) => (
+              <MessageGroup
+                group={item}
+                options={{ userId: viewer(), userName: viewer(), showReasoning: false }}
+              />
+            )}
+          </For>
+        </div>
+      ),
+      { container: root },
+    );
+    const probe = root.appendChild(document.createElement("span"));
+    probe.style.background = "var(--chat-user-surface)";
+    for (const accent of ["#a04c29", "#357ac6"]) {
+      style.setProperty("--accent", accent);
+      for (const id of ["alice", "bob"]) {
+        setViewer(id);
+        await waitForSolid(() =>
+          expect(root.querySelectorAll(".chat-group.user .chat-bubble")).toHaveLength(3),
+        );
+        const expected = getComputedStyle(probe).backgroundColor;
+        const bubbles = [...root.querySelectorAll<HTMLElement>(".chat-group.user .chat-bubble")];
+        expect(getComputedStyle(bubbles[id === "alice" ? 0 : 1]!).backgroundColor).toBe(expected);
+        expect(getComputedStyle(bubbles[id === "alice" ? 1 : 0]!).backgroundColor).not.toBe(
+          expected,
+        );
+        expect(getComputedStyle(bubbles[2]!).backgroundColor).not.toBe(expected);
+      }
+    }
+    const forwarded = root.querySelector<HTMLElement>(".chat-group--forwarded .chat-bubble")!;
+    const originalFill = getComputedStyle(forwarded).backgroundColor;
+    // Exercise the cascade: only the light forwarded skin uses the raised surface.
+    forwarded.style.setProperty("--bg-elevated", "#bcdcea");
+    expect(getComputedStyle(forwarded).backgroundColor === originalFill).toBe(mode === "dark");
+  },
+);

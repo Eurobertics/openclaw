@@ -200,11 +200,11 @@ export function prepareMessageGroupFrame(
     normalizedRole === "user" &&
     ((opts.onRewind && !opts.rewindDisabled) || hasMessageActionButtons(footerActionDetails, opts));
   // Source sessions share the stable sender hue machinery; CSS owns contrast
-  // in each theme. Unattributed local messages keep the accent skin.
+  // in each theme. Own and unattributed messages keep the theme-derived accent skin.
   const senderHue =
     isForwarded && sourceSessionKey
       ? resolveIdentityHue({ id: sourceSessionKey })
-      : normalizedRole === "user" && group.sender
+      : normalizedRole === "user" && group.sender && !isOwnGroup
         ? resolveIdentityHue(group.sender)
         : null;
   const pendingSend = readPendingSendStatus(group.messages.at(-1)?.message);
