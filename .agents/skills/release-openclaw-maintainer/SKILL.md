@@ -158,11 +158,12 @@ matching record, and root index may use `split-changelog-release-v1`
 to reuse product proof while qualifying new publication bytes. Any other
 source delta, rename, or deletion returns to the Code SHA loop. Historical
 root-only receipts retain `changelog-only-release-v1`.
-New test qualification freezes **Q=C**: the candidate's test workflow closure
-belongs to the candidate. Keep independently trusted **P** (admission, aggregate
-decision, verifier, and publisher) separate. A Q harness repair requires a new C/Q and newly bound
-evidence; P-only or infrastructure repairs can preserve the candidate. Missing
-qualification contracts need a deliberate backport, never future-main fallback.
+New qualification freezes **Q=C**: the entire qualification workflow closure,
+including the aggregate Release Decision, belongs to the candidate. Keep
+independently trusted **P** (admission, verifier, and publisher) separate.
+A qualification harness or aggregate-decision repair requires a new C/Q and
+newly bound evidence; P-only or infrastructure repairs can preserve the candidate.
+Missing qualification contracts need a deliberate backport, never future-main fallback.
 
 Once a candidate is cut, its base is the operator's decision. Never re-cut
 (re-base the candidate on newer `main`) unless Peter explicitly asks for it in
