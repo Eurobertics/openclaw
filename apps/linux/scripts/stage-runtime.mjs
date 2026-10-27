@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { resourceBytes, stagePackage } from "./stage-package.mjs";
 import { stageAotRuntime } from "./stage-standalone.mjs";
 import { desktopRuntimeReleaseTag } from "../../../scripts/lib/desktop-runtime-plugins.mjs";
+import { stageStandaloneSqlite } from "../../../scripts/lib/bun-standalone-sqlite.mjs";
 
 export { resourceBytes };
 
@@ -148,9 +149,17 @@ export async function stageRuntime(triple, { runtimeOnly = false, flavor = runti
       });
       const executablePath = path.join(work, "bin/bun");
       const executable = fs.readFileSync(executablePath);
+      const files = { "bin/bun": digest(executable) };
+      if (target.platform === "darwin") {
+        const sqlite = stageStandaloneSqlite({
+          repoRoot: root, runtimeRoot: work, bunExecutable: executablePath, ...target,
+        });
+        for (const file of sqlite.files) {
+          files[file.destination] = digest(fs.readFileSync(path.join(work, file.destination)));
+        }
+      }
       if (target.platform === "linux") fs.writeFileSync(executablePath, resourceBytes(executable));
       fs.chmodSync(executablePath, 0o644);
-      const files = { "bin/bun": createHash("sha256").update(executable).digest("hex") };
       fs.writeFileSync(path.join(work, "manifest.json"), `${JSON.stringify({
         tag: pin.tag, commit: pin.commit, revision: pin.revision, ...target, files,
         runtime: { flavor: "jit", executable: "bin/bun" },

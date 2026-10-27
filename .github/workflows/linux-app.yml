@@ -274,17 +274,6 @@ jobs:
             | tee "${RUNNER_TEMP}/openclaw-gstreamer-elements.tsv"
           echo "GSTREAMER_PLUGINS_DIR=$plugins" >> "$GITHUB_ENV"
 
-      - name: Prepare pinned AppImage tools
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          XDG_CACHE_HOME: ${{ runner.temp }}/openclaw-tauri-cache
-        run: | # zizmor: ignore[github-env] trusted checked-in helper returns the native runtime path
-          set -euo pipefail
-          apps/linux/scripts/tauri-appimage-tools.sh prepare
-          apps/linux/scripts/tauri-appimage-tools.sh verify pre-build
-          runtime_file=$(apps/linux/scripts/tauri-appimage-tools.sh runtime-path)
-          printf 'LDAI_RUNTIME_FILE=%s\n' "$runtime_file" >> "$GITHUB_ENV"
-
       - name: Validate prebuilt AOT artifact source
         if: github.event_name == 'workflow_dispatch' && inputs.desktop_runtime == 'aot'
         env:
@@ -320,6 +309,17 @@ jobs:
           run-id: ${{ inputs.aot_run_id }}
           name: ${{ inputs.aot_artifact_name }}
           path: ${{ runner.temp }}/desktop-aot
+
+      - name: Prepare pinned AppImage tools
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/openclaw-tauri-cache
+        run: | # zizmor: ignore[github-env] trusted checked-in helper returns the native runtime path
+          set -euo pipefail
+          apps/linux/scripts/tauri-appimage-tools.sh prepare
+          apps/linux/scripts/tauri-appimage-tools.sh verify pre-build
+          runtime_file=$(apps/linux/scripts/tauri-appimage-tools.sh runtime-path)
+          printf 'LDAI_RUNTIME_FILE=%s\n' "$runtime_file" >> "$GITHUB_ENV"
 
       - name: Build Linux companion bundles
         if: github.event_name == 'workflow_dispatch'

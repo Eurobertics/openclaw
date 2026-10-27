@@ -294,6 +294,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), String> {
         RuntimeFlavor::Jit => {
             manifest.runtime.executable == BUN_PATH
                 && manifest.runtime.standalone.is_none()
+                && (platform != "darwin" || manifest.files.contains_key("lib/libsqlite3.dylib"))
                 && manifest.entry().is_none_or(|entry| entry == PACKAGE_ENTRY)
                 && manifest.files.keys().all(|file| {
                     file == BUN_PATH

@@ -958,13 +958,9 @@ impl DesktopState {
                 }
                 Err(error) => return Err(error.to_string()),
             };
-            if test_profile::enabled() {
-                test_profile::start(&cli)?;
-            } else {
-                runtime_action::fresh(&cli, &runtime, &|| {
-                    self.runtime_operation_is_current(app, selection)
-                })?;
-            }
+            runtime_action::fresh(&cli, &runtime, &|| {
+                self.runtime_operation_is_current(app, selection)
+            })?;
             cli
         };
         #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

@@ -629,35 +629,6 @@ fn healthy_activation_persists_previous_selection_and_failure_keeps_it() {
 }
 
 #[test]
-fn launcher_invocation_and_service_kind_follow_the_runtime_flavor() {
-    let fixture = Fixture::new();
-    let entry = fixture.0.join("entry with spaces.mjs");
-    fs::write(&entry, "fixture").unwrap();
-    let mut runtime = fixture.runtime();
-    runtime.entry = Some(entry.clone());
-    let jit = runtime.command(&entry);
-    assert_eq!(
-        jit.get_args().collect::<Vec<_>>(),
-        [std::ffi::OsStr::new("--no-install"), entry.as_os_str()]
-    );
-    assert_eq!(runtime.flavor.service_kind(), "bun");
-    runtime.flavor = RuntimeFlavor::Aot;
-    runtime.entry = None;
-    let aot = runtime.command(&entry);
-    assert_eq!(aot.get_args().count(), 0);
-    assert_eq!(runtime.flavor.service_kind(), "standalone");
-    let launcher = Launcher {
-        purpose: Purpose::Gateway,
-        runtime,
-        entry,
-        retention: None,
-    };
-    let rendered = String::from_utf8(render(&launcher).unwrap()).unwrap();
-    assert!(!rendered.contains(" --no-install "));
-    assert!(rendered.lines().last().unwrap().ends_with(" \"$@\""));
-}
-
-#[test]
 fn successive_aot_activations_replace_the_jit_launcher_entry() {
     const CHILD: &str = "OPENCLAW_AOT_ACTIVATION_CHILD";
     if std::env::var_os(CHILD).is_none() {

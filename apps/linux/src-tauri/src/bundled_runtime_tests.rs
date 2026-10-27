@@ -158,6 +158,32 @@ fn publishes_a_durable_verified_copy_and_reuses_it() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn darwin_jit_requires_and_verifies_its_bundled_sqlite() {
+    let fixture = Fixture::new();
+    let runtime = fixture.seed().unwrap();
+    let sqlite = runtime.sqlite.unwrap();
+    assert_eq!(fs::read(&sqlite).unwrap(), b"synthetic sqlite");
+    fs::remove_file(&sqlite).unwrap();
+    fs::write(&sqlite, "modified sqlite").unwrap();
+    assert!(fixture.seed().unwrap_err().contains("checksum changed"));
+
+    let mut manifest: serde_json::Value = serde_json::from_str(&fixture.manifest).unwrap();
+    manifest["files"]
+        .as_object_mut()
+        .unwrap()
+        .remove("lib/libsqlite3.dylib");
+    fs::remove_file(fixture.source.join("lib/libsqlite3.dylib")).unwrap();
+    fs::remove_dir(fixture.source.join("lib")).unwrap();
+    let bytes = manifest.to_string();
+    fs::write(fixture.source.join("manifest.json"), &bytes).unwrap();
+    let error = seed_at(&fixture.source, &fixture.prefix, &bytes, &|_, _| Ok(()))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("identity does not match"), "{error}");
+}
+
 #[test]
 fn staging_an_update_retains_the_runtime_referenced_by_an_existing_service() {
     let fixture = Fixture::new();

@@ -61,9 +61,14 @@ test("runtime-only fixture staging preserves Bun without building the disposable
   fs.symlinkSync(fileURLToPath(new URL("./stage-package.mjs", import.meta.url)), path.join(scripts, "stage-package.mjs"));
   fs.symlinkSync(fileURLToPath(new URL("./stage-standalone.mjs", import.meta.url)), path.join(scripts, "stage-standalone.mjs"));
   fs.symlinkSync(fileURLToPath(new URL("../../../scripts/lib/desktop-runtime-plugins.mjs", import.meta.url)), path.join(root, "scripts/lib/desktop-runtime-plugins.mjs"));
+  fs.symlinkSync(fileURLToPath(new URL("../../../scripts/lib/bun-standalone-sqlite.mjs", import.meta.url)), path.join(root, "scripts/lib/bun-standalone-sqlite.mjs"));
   const pin = { tag: "test-pin", commit: "a".repeat(40), revision: "test-revision" };
   fs.writeFileSync(path.join(root, "scripts/lib/openclaw-bun.json"), JSON.stringify(pin));
-  fs.writeFileSync(path.join(root, "scripts/stage-openclaw-bun.sh"), '#!/bin/sh\nmkdir -p "$1/bin"\nprintf "synthetic Bun" > "$1/bin/bun"\nprintf "{}" > "$1/bun-manifest.json"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "scripts/lib/sqlite-macos.json"), JSON.stringify({ version: "3.53.4" }));
+  const bun = Buffer.from('#!/bin/sh\nprintf \'{"version":"3.53.4","extensionLoadingSupported":true,"compileOptions":[]}\\n\'\n');
+  fs.writeFileSync(path.join(root, "scripts/synthetic-bun"), bun);
+  fs.writeFileSync(path.join(root, "scripts/stage-openclaw-bun.sh"), '#!/bin/sh\nmkdir -p "$1/bin"\ncp scripts/synthetic-bun "$1/bin/bun"\nchmod +x "$1/bin/bun"\nprintf "{}" > "$1/bun-manifest.json"\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "scripts/build-mac-sqlite.sh"), '#!/bin/sh\nmkdir -p "$2/lib"\nprintf "synthetic sqlite" > "$2/lib/libsqlite3.dylib"\n');
   fs.writeFileSync(path.join(root, "package.json"), '{"version":"0.0.0"}');
   fs.writeFileSync(path.join(root, "scripts/package-openclaw-for-docker.mjs"), 'import fs from "node:fs"; fs.writeFileSync("package-build-started", "yes"); throw new Error("package build refused by fixture");');
   const env = { ...process.env, TAURI_ENV_TARGET_TRIPLE: "x86_64-unknown-linux-gnu" };
@@ -85,7 +90,6 @@ test("runtime-only fixture staging preserves Bun without building the disposable
   const fixture = stage("--runtime-only");
   assert.equal(fixture.status, 0, fixture.stderr);
   assert.equal(fs.existsSync(path.join(root, "package-build-started")), false);
-  const bun = Buffer.from("synthetic Bun");
   assert.deepEqual(fs.readFileSync(path.join(destination, "bin/bun")), Buffer.concat([Buffer.from("OPENCLAW-BUN-RUNTIME-V1\n"), bun]));
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(destination, "manifest.json"), "utf8")), {
     ...pin, platform: "linux", arch: "x64", files: { "bin/bun": hash(bun) },
@@ -123,6 +127,19 @@ test("runtime-only fixture staging preserves Bun without building the disposable
   assert.equal(macJit.status, 0, macJit.stderr);
   assert.equal(JSON.parse(fs.readFileSync(path.join(destination, "manifest.json"))).runtime.flavor, "jit");
   assert.deepEqual(fs.readFileSync(path.join(destination, "bin/bun")), bun);
+  const sqlite = fs.readFileSync(path.join(destination, "lib/libsqlite3.dylib"));
+  assert.equal(sqlite.toString(), "synthetic sqlite");
+  const macManifest = fs.readFileSync(path.join(destination, "manifest.json"), "utf8");
+  assert.deepEqual(JSON.parse(macManifest).files, {
+    "bin/bun": hash(bun), "lib/libsqlite3.dylib": hash(sqlite),
+  });
+
+  fs.writeFileSync(path.join(root, "scripts/build-mac-sqlite.sh"), '#!/bin/sh\necho "synthetic SQLite build failed" >&2\nexit 17\n');
+  const brokenSqlite = stage("--runtime-only");
+  assert.notEqual(brokenSqlite.status, 0);
+  assert.match(brokenSqlite.stderr, /Standalone SQLite preparation failed/);
+  assert.equal(fs.readFileSync(path.join(destination, "manifest.json"), "utf8"), macManifest);
+  assert.equal(fs.readFileSync(path.join(destination, "lib/libsqlite3.dylib"), "utf8"), "synthetic sqlite");
 });
 
 
