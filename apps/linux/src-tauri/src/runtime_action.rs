@@ -340,6 +340,28 @@ pub(crate) fn fresh(
     let launcher = read_launcher(cli)?;
     let selected_cli = select_cli(cli, runtime)?;
     let cli = &selected_cli;
+    validate_runtime(runtime)?;
+    let observed = inspect(cli)?;
+    if !observed.absent() {
+        return Err(CHANGED.into());
+    }
+    match observed.text("/service/runtimeIntent/status") {
+        Some("known") => observed.admit(true)?,
+        Some("migrationPending") => {}
+        _ => return Err(UPGRADE.into()),
+    }
+    // Baseline setup owns fresh config, workspace, and runtime-pin initialization.
+    check_current(is_current)?;
+    let output = checked_output(
+        cli.command(["setup", "--baseline", "--json"])
+            .map_err(|error| error.to_string())?,
+        "Baseline setup",
+    )?;
+    let result: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "Baseline setup returned invalid JSON.")?;
+    if result.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err("Baseline setup did not succeed.".into());
+    }
     let confirmed = inspect(cli)?;
     let healthy = perform(
         cli,

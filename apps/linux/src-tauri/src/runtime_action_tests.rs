@@ -129,6 +129,81 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn fresh_setup_initializes_pending_profile_before_gateway_install() {
+    let fixture = Fixture::new();
+    let mut pending = fixture.absent();
+    pending["service"]["runtimeIntent"] =
+        serde_json::json!({"status": "migrationPending", "nextStep": "run openclaw doctor"});
+    pending["service"]
+        .as_object_mut()
+        .unwrap()
+        .remove("revision");
+    pending["service"]
+        .as_object_mut()
+        .unwrap()
+        .remove("definitionMutation");
+    fixture.write_state(&pending);
+    let mut initialized = fixture.absent();
+    initialized["service"]["runtimeIntent"]["revision"] = "initialized-pin".into();
+    fs::write(
+        fixture.0.join("setup-state.json"),
+        serde_json::to_vec(&initialized).unwrap(),
+    )
+    .unwrap();
+
+    fresh(&fixture.cli(), &fixture.runtime(), &|| true).unwrap();
+
+    assert_eq!(fixture.installs(), 1);
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("setup-calls")).unwrap(),
+        "setup\n"
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&fixture.argument("--expected-runtime-pin")).unwrap(),
+        serde_json::json!({"revision": "initialized-pin", "definition": null})
+    );
+    assert!(inspect(&fixture.cli())
+        .unwrap()
+        .healthy_for(&fixture.runtime()));
+}
+
+#[test]
+fn fresh_setup_failure_does_not_install_or_publish_the_launcher() {
+    let fixture = Fixture::new();
+    let wrapper = fixture.canonical_launcher();
+    let original = fs::read(&wrapper).unwrap();
+    fixture.write_state(&fixture.absent());
+    fs::write(fixture.0.join("setup-reject"), "").unwrap();
+
+    let error = fresh(&fixture.cli(), &fixture.runtime(), &|| true).unwrap_err();
+
+    assert!(error.contains("baseline setup failed"));
+    assert_eq!(fixture.installs(), 0);
+    assert_eq!(fs::read(wrapper).unwrap(), original);
+}
+
+#[test]
+fn fresh_setup_refuses_existing_or_unknown_services_before_profile_changes() {
+    for kind in ["running", "paused", "unknown"] {
+        let fixture = Fixture::new();
+        let mut state = fixture.state();
+        if kind == "paused" {
+            state["service"]["loaded"] = false.into();
+            state["service"]["runtime"]["status"] = "stopped".into();
+        } else if kind == "unknown" {
+            state = fixture.absent();
+            state["service"]["runtimeIntent"] = serde_json::json!({"status": "unknown"});
+        }
+        fixture.write_state(&state);
+
+        assert!(fresh(&fixture.cli(), &fixture.runtime(), &|| true).is_err());
+
+        assert!(!fixture.0.join("setup-calls").exists(), "{kind}");
+        assert_eq!(fixture.installs(), 0, "{kind}");
+    }
+}
+
+#[test]
 fn fresh_install_with_unknown_mutation_capability_carries_null_definition_and_bundled_path() {
     let fixture = Fixture::new();
     let mut absent = fixture.absent();
