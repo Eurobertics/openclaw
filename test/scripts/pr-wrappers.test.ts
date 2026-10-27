@@ -4,23 +4,32 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
   chmodSync,
+  closeSync,
   constants as fsConstants,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import {
+  collectUnusedDependencyCaches,
+  withDependencyCacheLock,
+} from "../../scripts/pr-lib/cache-lifetime.mjs";
 import {
   isCoreQuotaExhausted,
   isGraphqlQuotaExhausted,
@@ -35,7 +44,11 @@ import {
   validReview,
   writeReviewArtifacts,
 } from "./pr-review-artifact-fixture.js";
-import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
+import {
+  copyPrWrapperSources,
+  delegatingGitFixture,
+  linkPrWrapperDependencies,
+} from "./pr-wrapper.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const templateDirs = useAutoCleanupTempDirTracker(afterAll);
@@ -434,6 +447,41 @@ describe("scripts/pr wrappers", () => {
     return { ...fixture, reviewPath, source, run };
   }
 
+  itPosix(
+    "preserves a PATH-delegating Git policy through admission, supervision and reentry",
+    () => {
+      const fixture = workflowFixture();
+      writeFileSync(
+        fixture.reviewPath,
+        `${readScript(fixture.reviewPath)}
+review_guard() {
+  pr_git show-ref --verify --quiet refs/openclaw/pr-operation-locks/123 || return 1
+  [ ! -e /dev/fd/8 ] && [ ! -e /dev/fd/9 ] || return 1
+  export PR_TEST_GIT_PHASE=supervised-shell
+  git --version >/dev/null || return
+  export PR_TEST_GIT_PHASE=supervised-node
+  node -e 'require("node:child_process").execFileSync("git", ["--version"], { stdio: "ignore" })' || return
+  echo 'delegating policy completed'
+}
+`,
+      );
+      fixture.commit(["scripts/pr-lib/review.sh"], true);
+      const guard = delegatingGitFixture(fixture.root, fixture.env);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = fixture.run("0", guard.env);
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(result.stdout).toContain("delegating policy completed");
+        expect(fixture.gitText(["for-each-ref", "refs/openclaw/pr-operation-locks/123"])).toBe("");
+      }
+      const calls = readScript(guard.calls);
+      expect(calls).toContain("supervised-shell --version\n");
+      expect(calls).toContain("supervised-node --version\n");
+      expect(calls).toContain("cat-file blob");
+      expect(calls).toContain("update-ref --no-deref -d refs/openclaw/pr-operation-locks/123");
+      expect(calls).not.toContain("recursive selected Git");
+    },
+  );
+
   itPosix("keeps the admitted workflow after a failed command and main advances", () => {
     const fixture = workflowFixture();
     const { source, reviewPath } = fixture;
@@ -467,7 +515,11 @@ describe("scripts/pr wrappers", () => {
     writeExecutable(
       join(fixture.bin, "node"),
       `#!/bin/sh
-"${process.execPath}" "$@"
+case "$*" in
+  *'fstatSync(8)'*) ;;
+  *) exec "${requireNodeTool("node")}" "$@" ;;
+esac
+"${requireNodeTool("node")}" "$@"
 status=$?
 case "$*" in
   *'fstatSync(8)'*) "${resolveCommand("git")}" -C "${fixture.canonical}" update-ref ${ref} ${successor} ${admitted} || exit ;;
@@ -516,7 +568,7 @@ exit "$status"
     );
     expect(record.source).toBe(fixture.source);
     const activeWrapper = result.stdout.match(/^active workflow wrapper (.+)$/m)?.[1] ?? "";
-    expect(activeWrapper).toContain("openclaw-pr-anchor.");
+    expect(activeWrapper).toContain("openclaw-pr-anchor-v2.");
     expect(existsSync(join(activeWrapper, ".."))).toBe(false);
   });
 
@@ -882,6 +934,85 @@ exit "$status"
     fixture.commit(["scripts/pr-lib/gates.sh"]);
   }
 
+  itPosix.each([
+    "scripts/pr-lib/cache-lifetime.mjs",
+    "scripts/pr-lib/materialized-anchor.mjs",
+    "scripts/windows-cmd-helpers.mjs",
+  ])("never imports a committed rejected parent helper: %s", (helper) => {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+    const marker = join(fixture.root, "rejected-helper-executed");
+    fixture.write(
+      helper,
+      `import { writeFileSync as recordRejected } from "node:fs"; recordRejected(${JSON.stringify(marker)}, "bad");\n${readScript(join(fixture.linked, helper))}`,
+      fixture.linked,
+    );
+    fixture.commit([helper], false, fixture.linked);
+    expect(fixture.gitText(["rev-parse", "HEAD:scripts/pr"], fixture.linked)).toBe(
+      fixture.gitText(["rev-parse", "refs/remotes/origin/main:scripts/pr"]),
+    );
+    parkCanonicalOffAnchor(fixture);
+    const result = runWrapper(fixture, ["ls"]);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain("running wrapper code materialized from");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  itPosix("retains without caller cleanup when trusted main lacks the bootstrap closure", () => {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+    const marker = join(fixture.root, "unqualified-cleanup-executed");
+    const cleanup = "scripts/pr-lib/materialized-anchor.mjs";
+    fixture.write(
+      cleanup,
+      `import { writeFileSync as recordRejected } from "node:fs"; recordRejected(${JSON.stringify(marker)}, "bad");\n${readScript(join(fixture.linked, cleanup))}`,
+      fixture.linked,
+    );
+    fixture.commit([cleanup], false, fixture.linked);
+    const missing = "scripts/pr-lib/cache-lifetime.mjs";
+    rmSync(join(fixture.canonical, missing));
+    fixture.commit(["-u", missing], true);
+    parkCanonicalOffAnchor(fixture);
+    const result = runWrapper(fixture, ["ls"]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Bootstrap closure unavailable");
+    expect(result.stderr).toContain("retaining");
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(1);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  itPosix("rejects selected archive paths overlapping the independent bootstrap root", () => {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+    const reserved = ".pr-bootstrap/replacement.mjs";
+    mkdirSync(dirname(join(fixture.canonical, reserved)), { recursive: true });
+    fixture.write(reserved, 'throw new Error("must not extract");\n');
+    const inventory = "scripts/pr-lib/wrapper-components.txt";
+    fixture.write(inventory, `${readScript(join(fixture.canonical, inventory))}.pr-bootstrap\n`);
+    fixture.commit([reserved, inventory], true);
+    parkCanonicalOffAnchor(fixture);
+    const result = runWrapper(fixture, ["ls"]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Selected source overlaps the reserved bootstrap directory");
+    expect(result.stderr).not.toContain("must not extract");
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(0);
+  });
+
+  itPosix("reauthenticates parent cleanup after a failed selected extraction", () => {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+    parkCanonicalOffAnchor(fixture);
+    const marker = join(fixture.root, "replaced-bootstrap-executed");
+    const appended = `\nimport { writeFileSync as recordReplacement } from "node:fs"; recordReplacement(${JSON.stringify(marker)}, "bad");\n`;
+    const shellAppended = "'" + appended.replaceAll("'", "'\\''") + "'";
+    writeExecutable(
+      join(fixture.bin, "tar"),
+      `#!/bin/sh\nif [ "$(basename "$2")" = anchor.tar ]; then\n  printf '%s' ${shellAppended} >> "$4/.pr-bootstrap/scripts/pr-lib/cache-lifetime.mjs"\n  exit 9\nfi\nexec '${resolveCommand("tar")}' "$@"\n`,
+    );
+    const result = runWrapper(fixture, ["ls"]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Bootstrap changed during selected extraction");
+    expect(result.stderr).toContain("cannot be authenticated");
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toHaveLength(1);
+    expect(existsSync(marker)).toBe(false);
+  });
+
   itPosix("preserves selected shell and Node Git across a legacy extracted wrapper handoff", () => {
     const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
     fixture.write(
@@ -901,22 +1032,7 @@ exit "$status"
     fixture.commit(["scripts/pr"], true);
     parkCanonicalOffAnchor(fixture);
 
-    const selected = join(fixture.root, "custom-git");
-    const calls = join(fixture.root, "git-handoff-calls");
-    writeExecutable(
-      selected,
-      '#!/bin/sh\nprintf "%s %s\\n" "${PR_TEST_GIT_PHASE:-bootstrap}" "$*" >> "$PR_TEST_GIT_CALLS"\nexec "$PR_TEST_REAL_GIT" "$@"\n',
-    );
-    writeExecutable(
-      join(fixture.bin, "git"),
-      '#!/bin/sh\necho "unexpected PATH Git" >&2\nexit 99\n',
-    );
-    const env = {
-      ...fixture.env,
-      OPENCLAW_PR_GIT: selected,
-      PR_TEST_GIT_CALLS: calls,
-      PR_TEST_REAL_GIT: resolveCommand("git"),
-    };
+    const { selected, calls, env } = delegatingGitFixture(fixture.root, fixture.env);
     const run = (path: string) =>
       runWrapper(fixture, ["ls"], "linked", { env: { ...env, PATH: path } });
     const result = run(env.PATH);
@@ -928,12 +1044,21 @@ exit "$status"
     const adapters = matchingEntries(fixture.root, "openclaw-pr-git.");
     expect(adapters).toHaveLength(1);
     const adapter = join(fixture.root, adapters[0]!);
-    expect(realpathSync(join(adapter, "git"))).toBe(realpathSync(selected));
+    expect(lstatSync(join(adapter, "git")).isFile()).toBe(true);
+    expect(readScript(join(adapter, "git"))).toContain("exec '");
+    expect(readScript(join(adapter, "git"))).not.toBe(readScript(selected));
 
-    const reentry = run(`${adapter}${delimiter}${env.PATH}`);
+    const reentry = runWrapper(fixture, ["ls"], "linked", {
+      env: {
+        ...env,
+        OPENCLAW_PR_GIT: join(adapter, "git"),
+        GIT_EXEC: join(adapter, "git"),
+        PATH: `${adapter}${delimiter}${env.PATH}`,
+      },
+    });
     expect(reentry.status, reentry.stdout + reentry.stderr).toBe(0);
     expect(reentry.stdout).toBe("legacy wrapper completed\n");
-    expect(matchingEntries(fixture.root, "openclaw-pr-git.")).toEqual(adapters);
+    expect(readScript(calls)).not.toContain("recursive selected Git");
   });
 
   function materializeAnchor(
@@ -957,7 +1082,7 @@ exit "$status"
     }
     expect(materialized.signal, materialized.stderr).toBe("SIGKILL");
     expect(materialized.stderr).toContain("running wrapper code materialized from");
-    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor.");
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
     expect(anchors).toHaveLength(1);
     const anchor = join(fixture.root, anchors[0]!);
     expect(statSync(anchor).mode & 0o777).toBe(0o700);
@@ -980,8 +1105,138 @@ exit "$status"
     fixture.commit([inventory, dependency, "scripts/pr-lib/review-artifacts.mjs"], true);
   }
 
-  function makeToolingRootFixture() {
-    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+  function archiveFaultFixture(
+    fixture: ReturnType<typeof makeMismatchedWrapperRepo>,
+    failure: string,
+    phase: "bootstrap" | "selected",
+  ) {
+    const helper = join(fixture.root, "archive-fault.mjs");
+    const readerLog = join(fixture.root, "selected-reader.log");
+    const archives = join(fixture.root, "archives.log");
+    writeFileSync(
+      helper,
+      String.raw`
+import { spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+const [tool, ...args] = process.argv.slice(2);
+const env = process.env;
+const failure = env.OPENCLAW_TEST_FAILURE;
+const phase = env.OPENCLAW_TEST_ARCHIVE_PHASE;
+const extracted = env.OPENCLAW_TEST_SELECTED_EXTRACTED;
+const backendEnv = { ...env, PATH: env.OPENCLAW_TEST_BACKEND_PATH };
+let command;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "-C" || args[i] === "-c") { i++; continue; }
+  if (/^-(?:C|c)./.test(args[i]) || ["--no-pager", "--literal-pathspecs", "--no-replace-objects"].includes(args[i])) continue;
+  command = args[i]; break;
+}
+const components = args.includes("--") ? args.slice(args.indexOf("--") + 1) : [];
+const componentPhase = components.includes("scripts/pr-lib") ? "selected"
+  : components.includes("scripts/pr-lib/cache-lifetime.mjs") ? "bootstrap" : undefined;
+let input;
+let targeted = false;
+let destination;
+let extractedPhase;
+if (tool === "git") {
+  if (command === "archive") {
+    appendFileSync(env.OPENCLAW_TEST_ARCHIVES, JSON.stringify({ phase: componentPhase, components }) + "\n");
+    targeted = componentPhase === phase;
+  } else if (command === "ls-tree") {
+    // Before extraction these listings also check namespace disjointness and
+    // source selection. Fault only the selected extraction's verification.
+    targeted = componentPhase === phase && (phase === "bootstrap" || existsSync(extracted));
+  } else if (command === "hash-object" && args.includes("--stdin-paths")) {
+    input = readFileSync(0);
+    const paths = input.toString("utf8").trimEnd().split("\n");
+    const bootstrap = paths.every(path => path.includes("/.pr-bootstrap/"));
+    const selected = paths.every(path => /\/openclaw-pr-anchor-v2\.[^/]+\//.test(path) && !path.includes("/.pr-bootstrap/"));
+    targeted = phase === "bootstrap" ? bootstrap : selected;
+  }
+} else {
+  // The wrapper uses -xf, not separate -x -f. Parse both native spellings.
+  const fileIndex = args.findIndex(arg => /^-[^-]*f$/.test(arg));
+  const file = fileIndex >= 0 ? args[fileIndex + 1] : undefined;
+  extractedPhase = basename(file ?? "") === "source.tar" ? "bootstrap"
+    : basename(file ?? "") === "anchor.tar" ? "selected" : undefined;
+  destination = args[args.indexOf("-C") + 1];
+  targeted = extractedPhase === phase;
+  if (extractedPhase === "selected") appendFileSync(env.OPENCLAW_TEST_READER_LOG, "started\n");
+}
+const capture = tool === "git" && (command === "ls-tree" || command === "hash-object");
+const result = spawnSync(tool === "git" ? env.OPENCLAW_TEST_GIT : env.OPENCLAW_TEST_TAR, args, {
+  env: backendEnv, input, stdio: [input === undefined ? 0 : "pipe", capture ? "pipe" : 1, 2],
+});
+if (result.stderr) writeFileSync(2, result.stderr);
+if (result.error) throw result.error;
+if (result.status !== 0) {
+  if (result.stdout) writeFileSync(1, result.stdout);
+  process.exit(result.status ?? 1);
+}
+let output = result.stdout;
+if (extractedPhase === "selected") writeFileSync(extracted, "selected archive extracted\n");
+if (targeted) {
+  if ((tool === "git" && command === "archive" && failure === "producer failure") ||
+      (tool === "tar" && failure === "reader failure") ||
+      (tool === "git" && command === "ls-tree" && failure === "listing producer failure") ||
+      (tool === "git" && command === "hash-object" && failure === "hash producer failure")) {
+    if (output) writeFileSync(1, output);
+    process.exit(42);
+  }
+  if (tool === "git" && command === "ls-tree" && failure === "unterminated listing") {
+    output = output.subarray(0, -1);
+  } else if (tool === "git" && ((command === "hash-object" && failure === "incomplete hash output") ||
+      (command === "ls-tree" && failure === "omitted required inventory component"))) {
+    const separator = output.includes(0) ? "\0" : "\n";
+    const records = output.toString("utf8").split(separator).slice(0, -1);
+    const retained = failure === "incomplete hash output" ? records.slice(0, -1)
+      : records.filter(record => record.slice(record.indexOf("\t") + 1) !== "package.json");
+    output = Buffer.from(retained.join(separator) + separator);
+  } else if (tool === "tar") {
+    const relative = phase === "bootstrap" ? "scripts/pr-lib/cache-lifetime.mjs"
+      : failure === "parent symlink" ? "scripts/lib"
+      : failure === "leaf symlink" ? "scripts/lib/plain-gh.mjs"
+      : "scripts/lib/anchor-review-record.mjs";
+    const path = join(destination, relative);
+    if (failure === "missing") rmSync(path);
+    else if (failure === "tampered") appendFileSync(path, "\n// tampered\n");
+    else if (failure === "leaf symlink" || failure === "parent symlink") {
+      renameSync(path, env.OPENCLAW_TEST_LINK_TARGET);
+      symlinkSync(env.OPENCLAW_TEST_LINK_TARGET, path);
+    }
+  }
+}
+if (output) writeFileSync(1, output);
+`,
+    );
+    for (const tool of ["git", "tar"]) {
+      writeExecutable(
+        join(fixture.bin, tool),
+        `#!/bin/sh\nexec "$OPENCLAW_TEST_NODE" "$OPENCLAW_TEST_FAULT_HELPER" ${tool} "$@"\n`,
+      );
+    }
+    return {
+      readerLog,
+      archives,
+      env: {
+        ...fixture.env,
+        OPENCLAW_TEST_GIT: resolveCommand("git"),
+        OPENCLAW_TEST_TAR: resolveCommand("tar"),
+        OPENCLAW_TEST_NODE: requireNodeTool("node"),
+        OPENCLAW_TEST_BACKEND_PATH: process.env.PATH,
+        OPENCLAW_TEST_FAULT_HELPER: helper,
+        OPENCLAW_TEST_FAILURE: failure,
+        OPENCLAW_TEST_ARCHIVE_PHASE: phase,
+        OPENCLAW_TEST_ARCHIVES: archives,
+        OPENCLAW_TEST_READER_LOG: readerLog,
+        OPENCLAW_TEST_SELECTED_EXTRACTED: join(fixture.root, "selected-extracted"),
+        OPENCLAW_TEST_LINK_TARGET: join(fixture.root, "anchor-matching-link-target"),
+      },
+    };
+  }
+
+  function makeToolingRootFixture({ dispatchBody }: { dispatchBody?: string } = {}) {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true, dispatchBody });
     const tooling = join(fixture.root, "tooling");
     const origin = fixture.gitText(["remote", "get-url", "origin"]);
     fixture.git(fixture.root, ["clone", "--no-local", "--quiet", origin, tooling]);
@@ -1005,7 +1260,7 @@ exit "$status"
   const mvHelp =
     process.platform === "linux" ? spawnSync("mv", ["--help"], { encoding: "utf8" }).stdout : "";
   const itExchange = mvHelp?.includes("--exchange") && mvHelp.includes("--no-copy") ? it : it.skip;
-  function recoveryFixture() {
+  function recoveryFixture({ legacy = false } = {}) {
     const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
     const runtime = runCommand(
       requireNodeTool("node"),
@@ -1017,7 +1272,12 @@ exit "$status"
     );
     expect(runtime.status, runtime.stderr).toBe(0);
     parkCanonicalOffAnchor(fixture);
-    const { anchor } = materializeAnchor(fixture);
+    let { anchor } = materializeAnchor(fixture);
+    if (legacy) {
+      const retained = anchor.replace("openclaw-pr-anchor-v2.", "openclaw-pr-anchor.");
+      renameSync(anchor, retained);
+      anchor = retained;
+    }
     fixture.git(fixture.canonical, ["checkout", "main"]);
     const modules = join(anchor, "node_modules");
     const donor = join(fixture.root, "isolated-tooling");
@@ -1186,6 +1446,15 @@ exit "$status"
     },
   );
 
+  itExchange("recovers an explicitly qualified legacy anchor without adopting its lifetime", () => {
+    const fixture = recoveryFixture({ legacy: true });
+    const result = fixture.run();
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(existsSync(fixture.anchor)).toBe(true);
+    expect(readFileSync(fixture.helper)).toEqual(fixture.frozenHelper);
+    expect(fixture.validate().status).toBe(0);
+  });
+
   itRecovery("refuses changed recovery inputs before replacing the retained projection", () => {
     const fixture = recoveryFixture();
     const original = fixture.projection(fixture.modules);
@@ -1279,9 +1548,30 @@ exit "$status"
     },
   );
 
-  function makeFrozenDependencyFixture() {
-    const fixture = makeToolingRootFixture();
+  function makeFrozenDependencyFixture({
+    oldHelper = false,
+    dispatchBody,
+  }: { oldHelper?: boolean; dispatchBody?: string } = {}) {
+    const fixture = makeToolingRootFixture({ dispatchBody });
     fixture.git(fixture.canonical, ["checkout", "main"]);
+    const helper = "scripts/pr-lib/materialize-dependencies.mjs";
+    const materializerCalls = join(fixture.root, "materializer-calls");
+    if (oldHelper) {
+      // A selected pre-lifetime helper still owns its complete package/version
+      // policy, but cannot guard private-cache donors on the current parent's behalf.
+      const source = readScript(helper).replace(
+        "    assertDependencyTarget(target, process.argv[3]);\n",
+        "",
+      );
+      fixture.write(
+        helper,
+        `import * as fixtureFs from "node:fs";
+import * as fixturePath from "node:path";
+const fixtureHolds = fixturePath.join(fixturePath.dirname(process.argv[2]), ".pr-holds");
+fixtureFs.appendFileSync(${JSON.stringify(materializerCalls)}, JSON.stringify({ source: process.argv[2], destination: process.argv[3], holds: fixtureFs.existsSync(fixtureHolds) ? fixtureFs.readdirSync(fixtureHolds).length : 0 }) + "\\n");
+${source}`,
+      );
+    }
     const markdownManifest = "packages/markdown-core/package.json";
     mkdirSync(join(fixture.canonical, "packages/markdown-core"), { recursive: true });
     fixture.write(markdownManifest, readScript(markdownManifest));
@@ -1290,7 +1580,7 @@ exit "$status"
       inventory,
       `${readScript(join(fixture.canonical, inventory))}${markdownManifest}\n`,
     );
-    fixture.commit([markdownManifest, inventory], true);
+    fixture.commit([markdownManifest, inventory, ...(oldHelper ? [helper] : [])], true);
     fixture.git(fixture.canonical, ["fetch", "origin", "main"]);
     fixture.git(fixture.canonical, ["checkout", "parked"]);
     const calls = join(fixture.root, "frozen-install-calls");
@@ -1308,7 +1598,11 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + "\\n");
 const root = args[1];
 if (root === ${JSON.stringify(fixture.tooling)}) process.exit(0);
-fs.cpSync(${JSON.stringify(join(fixture.tooling, "node_modules"))}, path.join(root, "node_modules"), { recursive: true });
+if (process.env.PR_TEST_INSTALL_GIT) {
+  const result = require("node:child_process").spawnSync("git", ["--version"], { stdio: "inherit", env: { ...process.env, PR_TEST_GIT_PHASE: "install-child" } });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+fs.cpSync(fs.realpathSync(${JSON.stringify(join(fixture.tooling, "node_modules"))}), path.join(root, "node_modules"), { recursive: true });
 fs.unlinkSync(path.join(root, "node_modules/tsx"));
 fs.symlinkSync(${JSON.stringify(expected)}, path.join(root, "node_modules/tsx"), "dir");
 const workspaceModules = path.join(root, "packages/markdown-core/node_modules");
@@ -1328,7 +1622,21 @@ if (process.env.PR_TEST_INSTALL_GATE) {
 `,
       fixture.bin,
     );
-    return { ...fixture, calls, expected };
+    return { ...fixture, calls, expected, materializerCalls };
+  }
+
+  function privateToolingDonor(fixture: ReturnType<typeof makeFrozenDependencyFixture>) {
+    const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
+    const donorEntry = join(cache, "a".repeat(64));
+    mkdirSync(donorEntry, { recursive: true, mode: 0o700 });
+    for (const name of [".pr-complete", ".pr-holds", ".pr-settled"]) {
+      mkdirSync(join(donorEntry, name), { mode: 0o700 });
+    }
+    renameSync(join(fixture.tooling, "node_modules"), join(donorEntry, "node_modules"));
+    rmSync(join(donorEntry, "node_modules/tsx"));
+    symlinkSync(fixture.expected, join(donorEntry, "node_modules/tsx"), "dir");
+    symlinkSync(join(donorEntry, "node_modules"), join(fixture.tooling, "node_modules"), "dir");
+    return donorEntry;
   }
 
   itPosix(
@@ -1343,7 +1651,7 @@ if (process.env.PR_TEST_INSTALL_GATE) {
         expect(result.stderr).toContain("running wrapper code materialized from");
       }
       expect(jsonLines(calls)).toHaveLength(1);
-      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies");
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
       const entry = readdirSync(cache)[0]!;
       expect(realpathSync(join(cache, entry, "node_modules/tsx"))).toBe(fixture.expected);
       expect(existsSync(join(cache, entry, "packages/markdown-core/package.json"))).toBe(true);
@@ -1362,8 +1670,353 @@ if (process.env.PR_TEST_INSTALL_GATE) {
     },
   );
 
+  itPosix(
+    "shares one frozen install across source revisions with independent anchor lifetimes",
+    () => {
+      const fixture = makeFrozenDependencyFixture();
+      const guard = delegatingGitFixture(fixture.root, {
+        ...fixture.env,
+        PR_TEST_INSTALL_GIT: "1",
+      });
+      fixture.git(fixture.canonical, ["checkout", "main"]);
+      const sourceOnly = "source-only.txt";
+      const auditPath = "scripts/pr-lib/dependency-inputs.json";
+      fixture.write(sourceOnly, "first source revision\n");
+      fixture.commit([sourceOnly]);
+      const rows = fixture.gitText(["ls-tree", "-r", "-z", "HEAD"]).split("\0").filter(Boolean);
+      // This fixture audits every tracked input except its inert source-only file
+      // and the audit record itself; no production audit is renewed by the test.
+      const inputs = rows.filter((row) => {
+        const name = row.slice(row.indexOf("\t") + 1);
+        return name !== sourceOnly && name !== auditPath;
+      });
+      const node = requireNodeTool("node");
+      const runtime = runCommand(
+        node,
+        [
+          "-p",
+          "JSON.stringify({ platform: process.platform, arch: process.arch, modules: process.versions.modules })",
+        ],
+        fixture.env,
+      );
+      expect(runtime.status, runtime.stderr).toBe(0);
+      fixture.write(
+        auditPath,
+        JSON.stringify({
+          files: inputs.map((row) => row.slice(row.indexOf("\t") + 1)),
+          directories: [],
+          presence: ["scripts"],
+          runtime: JSON.parse(runtime.stdout),
+          auditSha256: createHash("sha256").update(inputs.join("\0")).digest("hex"),
+        }),
+      );
+      fixture.commit([auditPath], true);
+      fixture.git(fixture.canonical, ["fetch", "origin", "main"]);
+
+      const createdRun = (anchor: string, args: string[], input?: string) => {
+        const fd = openSync(anchor, "r");
+        try {
+          return spawnSync(node, args, {
+            cwd: fixture.canonical,
+            env: guard.env,
+            encoding: "utf8",
+            input,
+            stdio: [
+              "pipe",
+              "pipe",
+              "pipe",
+              "ignore",
+              "ignore",
+              "ignore",
+              "ignore",
+              "ignore",
+              "ignore",
+              fd,
+            ],
+          });
+        } finally {
+          closeSync(fd);
+        }
+      };
+      const materialize = (revision: string) => {
+        const anchor = realpathSync(
+          mkdtempSync(join(fixture.root, `openclaw-pr-anchor-v2.${process.pid}.`)),
+        );
+        const archive = join(fixture.root, "shared-source.tar");
+        fixture.git(fixture.canonical, [
+          "archive",
+          "--format=tar",
+          `--output=${archive}`,
+          revision,
+        ]);
+        const extraction = runCommand("tar", ["-xf", archive, "-C", anchor], fixture.env);
+        expect(extraction.status, extraction.stderr).toBe(0);
+        rmSync(archive);
+        const owner = join(anchor, "scripts/pr-lib/materialize-dependencies.mjs");
+        expect(readScript(owner)).toBe(
+          fixture.git(fixture.canonical, [
+            "show",
+            `${revision}:scripts/pr-lib/materialize-dependencies.mjs`,
+          ]).stdout,
+        );
+        const bootstrap = readScript(join(anchor, "scripts/pr"))
+          .split("<<'EOF_TOOLING'\n")[1]!
+          .split("\nEOF_TOOLING")[0]!;
+        const result = createdRun(
+          anchor,
+          [
+            "--input-type=module",
+            "-",
+            owner,
+            fixture.canonical,
+            join(anchor, "node_modules"),
+            revision,
+            join(anchor, "scripts/pr-lib/cache-lifetime.mjs"),
+          ],
+          bootstrap,
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(result.stderr).toContain("Using frozen scripts/pr dependency installation:");
+        return anchor;
+      };
+      const firstRevision = fixture.gitText(["rev-parse", "HEAD"]);
+      const first = materialize(firstRevision);
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
+      const entries = readdirSync(cache);
+      expect(entries).toHaveLength(1);
+      const installation = realpathSync(join(cache, entries[0]!));
+      fixture.write(sourceOnly, "second source revision\n");
+      fixture.commit([sourceOnly], true);
+      fixture.git(fixture.canonical, ["fetch", "origin", "main"]);
+      const secondRevision = fixture.gitText(["rev-parse", "HEAD"]);
+      expect(secondRevision).not.toBe(firstRevision);
+      expect(fixture.gitText(["rev-parse", `${secondRevision}^{tree}`])).not.toBe(
+        fixture.gitText(["rev-parse", `${firstRevision}^{tree}`]),
+      );
+      for (const name of [auditPath, "package.json", "packages/markdown-core/package.json"]) {
+        expect(fixture.gitText(["rev-parse", `${secondRevision}:${name}`])).toBe(
+          fixture.gitText(["rev-parse", `${firstRevision}:${name}`]),
+        );
+      }
+      const second = materialize(secondRevision);
+      expect(readdirSync(cache)).toEqual(entries);
+      expect(jsonLines(fixture.calls)).toHaveLength(1);
+      expect(readScript(guard.calls)).toContain("install-child --version\n");
+      const holds = join(installation, ".pr-holds");
+      const consumers = () =>
+        readdirSync(holds)
+          .map((name) => readlinkSync(join(holds, name)))
+          .toSorted();
+      expect(consumers()).toEqual([first, second].toSorted());
+      const usableProjection = (anchor: string) => {
+        const projected = join(anchor, "node_modules/micromark");
+        expect(realpathSync(projected)).toBe(
+          join(installation, "node_modules/.workspace/micromark"),
+        );
+        const manifest = JSON.parse(
+          readScript(join(anchor, "packages/markdown-core/package.json")),
+        );
+        expect(JSON.parse(readScript(join(projected, "package.json"))).version).toBe(
+          manifest.dependencies.micromark,
+        );
+        expect(readdirSync(join(anchor, ".pr-cache-holds"))).toHaveLength(1);
+      };
+      usableProjection(first);
+      usableProjection(second);
+      const retire = (anchor: string) => {
+        const result = createdRun(anchor, [
+          join(anchor, "scripts/pr-lib/materialized-anchor.mjs"),
+          "retire-created",
+          anchor,
+        ]);
+        expect(result.status, result.stderr).toBe(0);
+        expect(existsSync(anchor)).toBe(false);
+      };
+      utimesSync(installation, new Date(0), new Date(0));
+      retire(first);
+      expect(consumers()).toEqual([second]);
+      expect(existsSync(join(installation, ".pr-settled"))).toBe(false);
+      // Pressure entries are already settled fixture installations. The shared
+      // entry and both of its holds above came only from the real bootstrap.
+      for (let index = 0; index < 5; index++) {
+        const entry = join(cache, String(index).repeat(64));
+        mkdirSync(entry, { mode: 0o700 });
+        for (const name of [".pr-complete", ".pr-holds", ".pr-settled"]) {
+          mkdirSync(join(entry, name), { mode: 0o700 });
+        }
+      }
+      const sweep = () => {
+        const retired = withDependencyCacheLock(cache, (lock) =>
+          collectUnusedDependencyCaches(lock),
+        );
+        for (const entry of retired) {
+          rmSync(entry, { recursive: true });
+        }
+      };
+      sweep();
+      usableProjection(second);
+      expect(consumers()).toEqual([second]);
+      retire(second);
+      expect(consumers()).toEqual([]);
+      expect(existsSync(join(installation, ".pr-settled"))).toBe(true);
+      sweep();
+      expect(existsSync(installation)).toBe(false);
+      expect(jsonLines(fixture.calls)).toHaveLength(1);
+    },
+  );
+
+  itPosix("guards an older selected helper before private-cache donor projection", () => {
+    const fixture = makeFrozenDependencyFixture({ oldHelper: true });
+    // The selected old materializer still owns package policy. A rejected
+    // invoking helper must not become the parent's current lifetime authority.
+    const rejected = "scripts/pr-lib/cache-lifetime.mjs";
+    const marker = join(fixture.root, "rejected-parent-helper-ran");
+    fixture.write(
+      rejected,
+      `import { writeFileSync as markRejectedParent } from "node:fs";\nmarkRejectedParent(${JSON.stringify(marker)}, "ran");\n${readScript(join(fixture.linked, rejected))}`,
+      fixture.linked,
+    );
+    fixture.commit([rejected], false, fixture.linked);
+    const donorEntry = privateToolingDonor(fixture);
+    const oldOwner = join(fixture.root, "old-owner");
+    mkdirSync(join(oldOwner, "packages/markdown-core"), { recursive: true });
+    const oldSource = fixture.gitText([
+      "show",
+      "refs/remotes/origin/main:scripts/pr-lib/materialize-dependencies.mjs",
+    ]);
+    writeFileSync(join(oldOwner, "materialize-dependencies.mjs"), oldSource);
+    cpSync("scripts/pr-lib/cache-lifetime.mjs", join(oldOwner, "cache-lifetime.mjs"));
+    for (const manifest of ["package.json", "packages/markdown-core/package.json"]) {
+      writeFileSync(
+        join(oldOwner, manifest),
+        fixture.gitText(["show", `refs/remotes/origin/main:${manifest}`]),
+      );
+    }
+    // Reproduce the old helper's unprotected success in isolated fixture data.
+    const counterfactual = runCommand(
+      requireNodeTool("node"),
+      [
+        join(oldOwner, "materialize-dependencies.mjs"),
+        join(fixture.tooling, "node_modules"),
+        join(oldOwner, "node_modules"),
+      ],
+      fixture.env,
+    );
+    expect(counterfactual.status, counterfactual.stderr).toBe(0);
+    expect(realpathSync(join(oldOwner, "node_modules/tsx"))).toBe(fixture.expected);
+    const previousCalls = readFileSync(fixture.materializerCalls, "utf8").trim().split("\n").length;
+    const result = fixture.run({ OPENCLAW_PR_TOOLING_ROOT: fixture.tooling });
+    expect(result.status, result.stdout + result.stderr).toBe(2);
+    expect(jsonLines(fixture.calls)).toHaveLength(1);
+    const invocations = readFileSync(fixture.materializerCalls, "utf8")
+      .trim()
+      .split("\n")
+      .slice(previousCalls)
+      .map((line) => JSON.parse(line) as { source: string; destination: string; holds: number });
+    expect(invocations.some((call) => call.source === join(fixture.tooling, "node_modules"))).toBe(
+      false,
+    );
+    const projected = invocations.filter(
+      (call) =>
+        call.destination.endsWith("/node_modules") &&
+        /\/[a-f0-9]{64}\/node_modules$/.test(call.source),
+    );
+    expect(projected.length).toBeGreaterThan(0);
+    expect(projected.every((call) => call.holds > 0)).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+    expect(readdirSync(join(donorEntry, ".pr-holds"))).toEqual([]);
+  });
+
+  itPosix.each([false, true])(
+    "reuses held private dependencies through supervised dispatch (older helper: %s)",
+    (oldHelper) => {
+      const fixture = makeFrozenDependencyFixture({
+        oldHelper,
+        dispatchBody: `
+test -z "\${OPENCLAW_PR_ANCHOR_CREATOR_PID:-}\${OPENCLAW_PR_ANCHOR_FD:-}" || return
+if { : <&9; } 2>/dev/null; then return 8; fi
+test "\${OPENCLAW_PR_LOCK_SUPERVISOR_PID:-}" = "$PPID" || return
+node --input-type=module - "$script_parent_dir/../node_modules" <<'EOF_HELD_PROJECTION'
+import { readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+const modules = realpathSync(process.argv[2]);
+const require = createRequire(join(modules, "projection-check.cjs"));
+const yaml = require("yaml");
+const packagePath = realpathSync(join(modules, "yaml"));
+const entry = dirname(dirname(packagePath));
+const anchor = dirname(modules);
+const holds = join(entry, ".pr-holds");
+const matchingHolds = readdirSync(holds).filter((name) => readlinkSync(join(holds, name)) === anchor);
+console.log("supervised-projection=" + JSON.stringify({ anchor, entry, matchingHolds: matchingHolds.length, usable: yaml.parse("held: true").held }));
+EOF_HELD_PROJECTION
+`,
+      });
+      const donorEntry = privateToolingDonor(fixture);
+      // A physical package is copied into the frozen installation, so dispatch
+      // exercises a real held cache target rather than only external aliases.
+      const yaml = join(donorEntry, "node_modules/yaml");
+      const packagePath = realpathSync(yaml);
+      rmSync(yaml);
+      cpSync(packagePath, yaml, { recursive: true });
+      const result = runWrapper(fixture, ["ci-dispatch", "123"], "linked", {
+        env: { ...fixture.env, OPENCLAW_PR_TOOLING_ROOT: fixture.tooling },
+      });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const line = result.stdout
+        .split("\n")
+        .find((value) => value.startsWith("supervised-projection="));
+      expect(line).toBeDefined();
+      const receipt = JSON.parse(line!.slice("supervised-projection=".length));
+      expect(receipt.usable).toBe(true);
+      expect(receipt.matchingHolds).toBe(1);
+      expect(receipt.entry).not.toBe(donorEntry);
+      expect(jsonLines(fixture.calls)).toHaveLength(1);
+      expect(existsSync(receipt.anchor)).toBe(false);
+      expect(readdirSync(join(receipt.entry, ".pr-holds"))).toEqual([]);
+      expect(existsSync(join(receipt.entry, ".pr-settled"))).toBe(true);
+      expect(readdirSync(join(donorEntry, ".pr-holds"))).toEqual([]);
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+      expect(
+        fixture.gitText([
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/openclaw/pr-operation-locks/123",
+        ]),
+      ).toBe("");
+    },
+  );
+
+  itPosix(
+    "normalizes symlinked temporary and cache roots through frozen fallback and retirement",
+    () => {
+      const fixture = makeFrozenDependencyFixture();
+      const temporaryAlias = join(fixture.root, "temporary-alias");
+      symlinkSync(fixture.root, temporaryAlias, "dir");
+      const cacheOwner = join(fixture.root, "cache-owner");
+      mkdirSync(cacheOwner, { mode: 0o700 });
+      symlinkSync(cacheOwner, join(fixture.env.HOME!, ".cache"), "dir");
+      for (let run = 0; run < 2; run++) {
+        const result = fixture.run({
+          OPENCLAW_PR_TOOLING_ROOT: fixture.tooling,
+          TMPDIR: temporaryAlias,
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(2);
+        expect(result.stderr).toContain("running wrapper code materialized from");
+        expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+      }
+      expect(jsonLines(fixture.calls)).toHaveLength(1);
+      const cache = join(cacheOwner, "openclaw/pr-dependencies/v2");
+      const entries = readdirSync(cache);
+      expect(entries).toHaveLength(1);
+      expect(readdirSync(join(cache, entries[0]!, ".pr-holds"))).toEqual([]);
+      expect(existsSync(join(cache, entries[0]!, ".pr-settled"))).toBe(true);
+    },
+  );
+
   itPosix("publishes one complete dependency installation when creators overlap", async () => {
-    const fixture = makeFrozenDependencyFixture();
+    const fixture = makeFrozenDependencyFixture({ oldHelper: true });
     const start = (name: string) => {
       const gate = join(fixture.root, `install-gate-${name}`);
       expect(runCommand("mkfifo", [gate], fixture.env).status).toBe(0);
@@ -1395,15 +2048,46 @@ if (process.env.PR_TEST_INSTALL_GATE) {
       await Promise.all(creators.map((creator) => creator.ready));
       await Promise.all(creators.map((creator) => writeFile(creator.gate, "x")));
       for (const creator of creators) {
-        expect((await creator.result)[0], creator.errors()).toBe(2);
+        const code = (await creator.result)[0];
+        expect(code, creator.errors()).toBe(2);
         expect(creator.errors()).toContain("running wrapper code materialized from");
       }
-      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies");
+      const cache = join(fixture.env.HOME!, ".cache/openclaw/pr-dependencies/v2");
       expect(readdirSync(cache)).toHaveLength(1);
       expect(jsonLines(fixture.calls)).toHaveLength(2);
       expect(realpathSync(join(cache, readdirSync(cache)[0]!, "node_modules/tsx"))).toBe(
         fixture.expected,
       );
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+      expect(readdirSync(join(cache, readdirSync(cache)[0]!, ".pr-holds"))).toEqual([]);
+      expect(existsSync(join(cache, readdirSync(cache)[0]!, ".pr-settled"))).toBe(true);
+      // A later real consumer also reuses the published entry without an install,
+      // holds its projection, then retires its own anchor canonically.
+      const previousCalls = existsSync(fixture.materializerCalls)
+        ? jsonLines(fixture.materializerCalls).length
+        : 0;
+      const consumer = fixture.run({ OPENCLAW_PR_TOOLING_ROOT: fixture.tooling });
+      expect(consumer.status, consumer.stdout + consumer.stderr).toBe(2);
+      expect(consumer.stderr).toContain("running wrapper code materialized from");
+      expect(jsonLines(fixture.calls)).toHaveLength(2);
+      expect(readdirSync(cache)).toHaveLength(1);
+      const projections = jsonLines(fixture.materializerCalls)
+        .slice(previousCalls)
+        .filter(
+          (call: { source: string; destination: string }) =>
+            call.destination.endsWith("/node_modules") &&
+            /\/[a-f0-9]{64}\/node_modules$/.test(call.source),
+        );
+      expect(projections.length).toBeGreaterThan(0);
+      for (const call of projections) {
+        expect(call.holds).toBeGreaterThan(0);
+        const anchor = join(call.destination, "..");
+        expect(existsSync(anchor)).toBe(false);
+        const holds = join(cache, readdirSync(cache)[0]!, ".pr-holds");
+        expect(readdirSync(holds).map((name) => readlinkSync(join(holds, name)))).not.toContain(
+          anchor,
+        );
+      }
     } finally {
       for (const creator of creators) {
         if (creator.child.exitCode === null) {
@@ -1482,10 +2166,13 @@ exec "$OPENCLAW_TEST_NODE" "$@"
     fixture.write("pnpm", `#!/bin/sh\ntouch '${installed}'\nexit 1\n`, fixture.bin);
     const result = fixture.run({
       OPENCLAW_PR_TOOLING_ROOT: fixture.tooling,
-      OPENCLAW_TEST_NODE: process.execPath,
+      OPENCLAW_TEST_NODE: requireNodeTool("node"),
     });
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain("Dependency materialization failed");
+    expect(result.stderr).toMatch(
+      /Dependency materialization failed in [^\r\n]+\/node_modules: PR dependency projection is not an owned physical directory/u,
+    );
     expect(existsSync(installed)).toBe(false);
   });
 
@@ -1528,7 +2215,7 @@ echo "canonical wrapper executed";`,
       "running wrapper code materialized from the refs/remotes/origin/main trust anchor",
     );
     expect(result.stderr).not.toContain("Refusing to silently substitute");
-    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor.");
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
     expect(anchors).toHaveLength(0);
   });
 
@@ -1604,7 +2291,7 @@ if (process.env.PR_TEST_INTERRUPT !== "1") process.exit(Number(process.env.PR_TE
       if (args[0] === "ci-dispatch") {
         expect(readScript(started)).toBe("operation started\n");
       }
-      expect(matchingEntries(fixture.root, "openclaw-pr-anchor.")).toEqual([]);
+      expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
     },
   );
 
@@ -1619,7 +2306,7 @@ if (process.env.PR_TEST_INTERRUPT !== "1") process.exit(Number(process.env.PR_TE
       env: { ...fixture.env, PR_TEST_REAL_TAR: resolveCommand("tar") },
     });
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor.")).toEqual([]);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
     expect(result.stderr).toContain("Unable to execute the materialized scripts/pr wrapper.");
   });
 
@@ -1651,6 +2338,7 @@ fi
     "producer failure",
     "reader failure",
     "listing producer failure",
+    "hash producer failure",
     "incomplete hash output",
     "unterminated listing",
     "omitted required inventory component",
@@ -1667,107 +2355,8 @@ fi
       advanceAnchorReviewDependency(fixture);
     }
     parkCanonicalOffAnchor(fixture);
-    const git = join(fixture.bin, "git");
-    writeFileSync(
-      git,
-      `#!/bin/sh
-git_command() {
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      -c|-C) shift 2 ;;
-      -c?*|-C?*|--no-pager|--literal-pathspecs|--no-replace-objects) shift ;;
-      *) printf '%s\\n' "$1"; return ;;
-    esac
-  done
-}
-command=$(git_command "$@")
-if [ "$command" = archive ]; then
-  "$OPENCLAW_TEST_GIT" "$@" || exit
-  if [ "$OPENCLAW_TEST_FAILURE" = 'producer failure' ]; then
-    exit 42
-  fi
-  exit 0
-fi
-case "$command:$OPENCLAW_TEST_FAILURE" in
-  'ls-tree:listing producer failure'|'hash-object:hash producer failure')
-    "$OPENCLAW_TEST_GIT" "$@" || exit
-    exit 42
-    ;;
-  'ls-tree:unterminated listing'|'ls-tree:omitted required inventory component'|'hash-object:incomplete hash output')
-    "$OPENCLAW_TEST_GIT" "$@" > "$OPENCLAW_TEST_GIT_OUTPUT" || exit
-    exec "$OPENCLAW_TEST_NODE" -e '
-const { readFileSync, writeFileSync } = require("node:fs");
-const output = readFileSync(process.env.OPENCLAW_TEST_GIT_OUTPUT);
-let changed;
-if (process.env.OPENCLAW_TEST_FAILURE === "unterminated listing") {
-  changed = output.subarray(0, -1);
-} else {
-  const separator = output.includes(0) ? 0 : 10;
-  const records = [];
-  let start = 0;
-  for (let end = 0; end < output.length; end++) {
-    if (output[end] === separator) {
-      records.push(output.subarray(start, end));
-      start = end + 1;
-    }
-  }
-  const retained = process.env.OPENCLAW_TEST_FAILURE === "incomplete hash output"
-    ? records.slice(0, -1)
-    : records.filter((record) => !record.subarray(record.indexOf(9) + 1).equals(Buffer.from("package.json")));
-  changed = Buffer.concat(retained.flatMap((record) => [record, Buffer.from([separator])]));
-}
-writeFileSync(1, changed);
-'
-    ;;
-esac
-exec "$OPENCLAW_TEST_GIT" "$@"
-`,
-    );
-    chmodSync(git, 0o755);
-    const tar = join(fixture.bin, "tar");
-    writeFileSync(
-      tar,
-      `#!/bin/sh
-printf 'started\\n' >> "$OPENCLAW_TEST_READER_LOG"
-"$OPENCLAW_TEST_TAR" "$@" || exit
-if [ "$OPENCLAW_TEST_FAILURE" = 'reader failure' ]; then
-  exit 42
-fi
-case "$OPENCLAW_TEST_FAILURE" in
-  'leaf symlink') linked_path=scripts/lib/plain-gh.mjs ;;
-  'parent symlink') linked_path=scripts/lib ;;
-  'tampered'|'missing') linked_path=scripts/lib/anchor-review-record.mjs ;;
-  *) exit 0 ;;
-esac
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-C" ]; then
-    case "$OPENCLAW_TEST_FAILURE" in
-      missing) rm "$2/$linked_path" ;;
-      tampered) printf '\\n// tampered\\n' >> "$2/$linked_path" ;;
-      *) mv "$2/$linked_path" "$OPENCLAW_TEST_LINK_TARGET" || exit
-         ln -s "$OPENCLAW_TEST_LINK_TARGET" "$2/$linked_path" ;;
-    esac
-    exit
-  fi
-  shift
-done
-exit 99
-`,
-    );
-    chmodSync(tar, 0o755);
-    const readerLog = join(fixture.root, "reader.log");
-    const result = runWrapper(fixture, ["unknown-command"], "linked", {
-      env: {
-        ...fixture.env,
-        OPENCLAW_TEST_GIT: resolveCommand("git"),
-        OPENCLAW_TEST_TAR: resolveCommand("tar"),
-        OPENCLAW_TEST_FAILURE: failure,
-        OPENCLAW_TEST_GIT_OUTPUT: join(fixture.root, "git-output"),
-        OPENCLAW_TEST_LINK_TARGET: join(fixture.root, "anchor-matching-link-target"),
-        OPENCLAW_TEST_NODE: process.execPath,
-        OPENCLAW_TEST_READER_LOG: readerLog,
-      },
-    });
+    const fault = archiveFaultFixture(fixture, failure, "selected");
+    const result = runWrapper(fixture, ["unknown-command"], "linked", { env: fault.env });
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
     expect(result.stderr).toContain("Refusing to silently substitute");
     expect(result.stderr).not.toContain("running wrapper code materialized from");
@@ -1777,9 +2366,69 @@ exit 99
           .split("\n")
           .find((line) => line.startsWith("differing wrapper components vs origin/main:")),
       ).toBe("differing wrapper components vs origin/main: scripts/pr-lib");
-      expect(existsSync(readerLog)).toBe(failure !== "producer failure");
+      expect(existsSync(fault.readerLog)).toBe(failure !== "producer failure");
     }
-    expect(matchingEntries(fixture.root, "openclaw-pr-anchor.")).toEqual([]);
+    expect(matchingEntries(fixture.root, "openclaw-pr-anchor-v2.")).toEqual([]);
+  });
+
+  itPosix.each([
+    "producer failure",
+    "reader failure",
+    "hash producer failure",
+    "tampered",
+    "leaf symlink",
+  ])("retains the owned anchor without executing helpers after bootstrap %s", (failure) => {
+    const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
+    parkCanonicalOffAnchor(fixture);
+    const callerExecuted = join(fixture.root, "caller-helper-executed");
+    writeFileSync(
+      join(fixture.linked, "scripts/pr-lib/materialized-anchor.mjs"),
+      `
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(callerExecuted)}, "untrusted caller helper executed");
+throw new Error("untrusted caller helper executed");
+`,
+    );
+    fixture.commit(["scripts/pr-lib/materialized-anchor.mjs"], false, fixture.linked);
+    const fault = archiveFaultFixture(fixture, failure, "bootstrap");
+    const result = runWrapper(fixture, ["unknown-command"], "linked", { env: fault.env });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain(
+      failure === "producer failure" || failure === "reader failure"
+        ? "Bootstrap closure unavailable; retaining"
+        : "Bootstrap helper qualification failed; retaining",
+    );
+    expect(result.stderr).toContain(
+      "Warning: retaining PR anchor before bootstrap helper qualification:",
+    );
+    expect(result.stderr).not.toContain("running wrapper code materialized from");
+    expect(existsSync(callerExecuted)).toBe(false);
+    expect(existsSync(fault.readerLog)).toBe(false);
+    const archives = jsonLines(fault.archives);
+    expect(archives).toEqual([
+      {
+        phase: "bootstrap",
+        components: [
+          "scripts/pr",
+          "scripts/pr-lib/wrapper-components.txt",
+          "scripts/pr-lib/cache-lifetime.mjs",
+          "scripts/pr-lib/materialized-anchor.mjs",
+          "scripts/pr-lib/git-invocation.mjs",
+          "scripts/pr-lib/materialize-dependencies.mjs",
+          "scripts/pr-lib/dependency-inputs.json",
+          "scripts/windows-cmd-helpers.mjs",
+        ],
+      },
+    ]);
+    const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
+    expect(anchors).toHaveLength(1);
+    const anchor = join(fixture.root, anchors[0]!);
+    expect(lstatSync(anchor).isDirectory()).toBe(true);
+    expect(statSync(anchor).uid).toBe(statSync(fixture.root).uid);
+    expect(statSync(anchor).mode & 0o777).toBe(0o700);
+    expect(existsSync(join(anchor, ".pr-bootstrap/scripts/pr-lib/cache-lifetime.mjs"))).toBe(
+      failure !== "producer failure",
+    );
   });
 
   itPosix("executes extracted helpers through a symlinked temporary root", () => {
@@ -1973,7 +2622,7 @@ node "$script_parent_dir/verify-pr-hosted-gates.mjs" --anchor-proof;`,
       expect(existsSync(ghCalled)).toBe(false);
       expect(existsSync(linkedModules)).toBe(false);
       expect(result.stderr).not.toContain("dev-wrapper opt-in");
-      const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor.");
+      const anchors = matchingEntries(fixture.root, "openclaw-pr-anchor-v2.");
       expect(anchors).toHaveLength(0);
       const dependencyProof = result.stdout
         .split("\n")

@@ -1,5 +1,45 @@
-import { cpSync, lstatSync, mkdirSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
+import {
+  cpSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
+
+// A policy launcher deliberately discovers its backend with bare Git. Bound
+// depth makes an adapter cycle a deterministic failure, never a process storm.
+export function delegatingGitFixture<TEnv extends NodeJS.ProcessEnv>(
+  root: string,
+  parentEnv: TEnv,
+) {
+  const selected = join(root, "policy git'launcher");
+  const calls = join(root, "policy-git-calls");
+  writeFileSync(
+    selected,
+    `#!/bin/sh
+depth=\${PR_TEST_GIT_DEPTH:-0}
+if [ "$depth" -ge 3 ]; then echo 'recursive selected Git' >&2; exit 86; fi
+export PR_TEST_GIT_DEPTH=$((depth + 1))
+printf '%s %s\\n' "\${PR_TEST_GIT_PHASE:-bootstrap}" "$*" >> "$PR_TEST_GIT_CALLS"
+exec git "$@"
+`,
+    { mode: 0o755 },
+  );
+  return {
+    selected,
+    calls,
+    env: {
+      ...parentEnv,
+      OPENCLAW_PR_GIT: selected,
+      GIT_EXEC: selected,
+      PR_TEST_GIT_CALLS: calls,
+      PR_TEST_GIT_DEPTH: "0",
+    },
+  };
+}
 
 export function createIndependentPrFixtureEnv(
   parentEnv: NodeJS.ProcessEnv = process.env,
