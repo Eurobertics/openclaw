@@ -67,6 +67,7 @@ const repositoryScriptEntries = [
   // Its header documents the paired operator-role currency-check benchmark.
   "scripts/perf/operator-role-source-policy-measure.mjs!",
   "scripts/perf/access-authority-callback-measure.mjs!",
+  "scripts/perf/plugin-registry-binding-measure.mjs!",
   // Its header documents the config-wide admission metadata benchmark.
   "scripts/perf/config-wide-metadata-measure.ts!",
   // Its header documents the sandbox/workspace ownership assertion benchmark.
