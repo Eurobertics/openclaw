@@ -146,6 +146,107 @@ printf 'ready\\n' > "$FIXTURE_EMULATOR_READY"
   );
 });
 
+it("retains system failure evidence before emulator teardown without replacing the capture error", () => {
+  const { root, run } = captureFixture("phone");
+  const helper = "scripts/lib/android-screenshot-diagnostics.sh";
+  mkdirSync(path.join(root, "scripts/lib"), { recursive: true });
+  copyFileSync(helper, path.join(root, helper));
+  const readyPipe = path.join(root, "emulator-ready");
+  expect(command("mkfifo", [readyPipe]).status).toBe(0);
+  executable(
+    root,
+    "uname",
+    `case "$1" in
+  -s) printf 'Linux\\n' ;;
+  -m) printf 'x86_64\\n' ;;
+  *) printf 'Linux fixture\\n' ;;
+esac
+`,
+  );
+  executable(
+    root,
+    "timeout",
+    `while [[ "$1" == --* ]]; do shift; done
+shift
+exec "$@"
+`,
+  );
+  const adb = executable(
+    root,
+    "adb",
+    `case "$*" in
+  devices)
+    printf 'List of devices attached\\n'
+    [[ ! -e "$FIXTURE_ROOT/stopped" ]] || exit 0
+    [[ -e "$FIXTURE_ROOT/discovered" ]] || { touch "$FIXTURE_ROOT/discovered"; exit 0; }
+    if [[ ! -e "$FIXTURE_ROOT/online" ]]; then
+      read -r ready < "$FIXTURE_ROOT/emulator-ready"
+      touch "$FIXTURE_ROOT/online"
+    fi
+    printf 'emulator-5554\\tdevice\\n'
+    ;;
+  '-s emulator-5554 wait-for-device') ;;
+  '-s emulator-5554 emu kill')
+    grep -Fq 'SystemUI ANR fixture' "$FIXTURE_ROOT/.artifacts/android-screenshots/latest/phone/diagnostics/last-anr.txt"
+    printf 'ANR evidence existed before teardown\\n' > "$FIXTURE_ROOT/teardown-proof"
+    touch "$FIXTURE_ROOT/stopped"
+    ;;
+  '-s emulator-5554 shell getprop sys.boot_completed'|'-s emulator-5554 shell getprop ro.kernel.qemu') printf '1\\n' ;;
+  '-s emulator-5554 shell cmd time_zone_detector is_auto_detection_enabled') printf 'true\\n' ;;
+  '-s emulator-5554 shell getprop persist.sys.timezone') printf 'UTC\\n' ;;
+  '-s emulator-5554 shell wm size') printf 'Physical size: 1080x1920\\n' ;;
+  '-s emulator-5554 shell wm density') printf 'Physical density: 420\\n' ;;
+  '-s emulator-5554 shell am start -W '*) echo 'Synthetic screenshot launch failure' >&2; exit 42 ;;
+  '-s emulator-5554 logcat '*) printf 'SystemUI system event fixture\\n' ;;
+  '-s emulator-5554 shell dumpsys activity lastanr') printf 'SystemUI ANR fixture\\n' ;;
+  '-s emulator-5554 shell dumpsys activity exit-info com.android.systemui') echo 'Synthetic diagnostic probe unavailable' >&2; exit 19 ;;
+  '-s emulator-5554 shell dumpsys '*|'-s emulator-5554 shell for key '*|'-s emulator-5554 shell cat /proc/meminfo;'*) printf 'Synthetic system counters\\n' ;;
+  '-s emulator-5554 shell pidof com.android.systemui') ;;
+  '-s emulator-5554 shell input '*|'-s emulator-5554 shell cmd '*|'-s emulator-5554 shell settings '*|'-s emulator-5554 shell svc '*|'-s emulator-5554 shell wm '*|'-s emulator-5554 shell pm '*|'-s emulator-5554 shell am force-stop '*) ;;
+  *) printf 'unexpected adb invocation: %s\\n' "$*" >&2; exit 97 ;;
+esac
+`,
+  );
+  const emulator = executable(
+    root,
+    "emulator",
+    `case "$*" in
+  -list-avds) printf 'OpenClaw_Screenshots_API36\\n' ;;
+  '-no-window -version') printf 'Synthetic emulator version\\n' ;;
+  *) printf 'ready\\n' > "$FIXTURE_ROOT/emulator-ready" ;;
+esac
+`,
+  );
+  const result = run({
+    ADB: adb,
+    ANDROID_EMULATOR: emulator,
+    ANDROID_SCREENSHOT_DEVICE: "",
+    ANDROID_SCREENSHOT_AVD: "OpenClaw_Screenshots_API36",
+    ANDROID_SCREENSHOT_DIAGNOSTICS: "1",
+    FIXTURE_ROOT: root,
+    PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}`,
+  });
+  expect(result.status, result.stderr).toBe(42);
+  expect(result.stderr).toContain("Synthetic screenshot launch failure");
+  expect(result.stderr).not.toContain("unexpected adb invocation");
+  const artifacts = path.join(root, ".artifacts/android-screenshots/latest/phone");
+  expect(readFileSync(path.join(artifacts, "diagnostics/system-events.log"), "utf8")).toContain(
+    "SystemUI system event fixture",
+  );
+  expect(readFileSync(path.join(artifacts, "diagnostics/last-anr.txt"), "utf8")).toContain(
+    "SystemUI ANR fixture",
+  );
+  expect(
+    readFileSync(path.join(artifacts, "diagnostics/systemui-exit-info.txt"), "utf8"),
+  ).toContain("probe_exit_status=19");
+  expect(readFileSync(path.join(root, "teardown-proof"), "utf8")).toBe(
+    "ANR evidence existed before teardown\n",
+  );
+  expect(readFileSync(path.join(artifacts, "process-status.txt"), "utf8")).toContain(
+    "exit_status=42\n",
+  );
+});
+
 it("rejects locale path escapes before dry-run output", () => {
   const result = runAndroidScreenshots(["--dry-run", "--locale", "../escape"]);
 

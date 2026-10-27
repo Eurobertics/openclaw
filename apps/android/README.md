@@ -347,6 +347,14 @@ Install the API 36 Google APIs and API 34 Wear OS system images in the local
 Android SDK. Use `--form-factor phone|wear` with `--avd` or `--device` to
 explicitly capture one form factor from another emulator.
 
+For a nonpublishing hosted replay, select `screenshots` in **Android Emulator
+Diagnostic** and supply the exact candidate commit SHA. It runs the same phone
+and Wear capture script with `ANDROID_SCREENSHOT_DIAGNOSTICS=1`, recording phase
+timings, host resource samples, emulator/image identity, and bounded system/ANR
+diagnostics on failure before emulator cleanup. Diagnostic artifacts expire after
+seven days. This operation uses debug apps and does not access signing or store
+credentials.
+
 For local branch-switching proof, launch a debug build with the intent extras
 `openclaw.screenshotMode=true` and `openclaw.screenshotScene=branches`. This Chat
 scene has 12 local branch alternatives and no active run. Switching updates the
