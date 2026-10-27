@@ -24,9 +24,9 @@ import {
 import { prepareTranscriptEventReadQuery } from "./session-accessor.sqlite-read.js";
 import { toDatabaseOptions } from "./session-accessor.sqlite-scope.js";
 import { readTranscriptContextStateInTransaction } from "./session-accessor.sqlite-transcript-state.js";
-import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionCompactionPreparation } from "./session-history-read.types.js";
 import { sessionHistoryCleanupError } from "./session-history-worker-errors.js";
+import { SessionTranscriptColdError } from "./session-transcript-cold-error.js";
 import { SessionTranscriptStorageUnavailableError } from "./session-transcript-projection-error.js";
 import { transcriptEventReadBytesSql } from "./session-transcript-read-bytes.js";
 import { resolveSqliteSessionTranscriptReadFence } from "./session-transcript-read-fence.js";

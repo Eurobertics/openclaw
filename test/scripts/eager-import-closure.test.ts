@@ -497,6 +497,19 @@ it.each([
     ],
   },
   {
+    name: "transcript worker cold-error transport",
+    entrypoints: [
+      "src/config/sessions/session-transcript.worker.ts",
+      "src/config/sessions/session-history-worker-errors.ts",
+      "src/config/sessions/session-cold-storage-read.ts",
+    ],
+    dynamic: false,
+    deferredOwners: [
+      "src/config/sessions/session-cold-storage-state.ts",
+      "src/infra/kysely-sync.ts",
+    ],
+  },
+  {
     name: "Ollama config metadata",
     entrypoints: ["extensions/ollama/src/defaults.ts", "extensions/ollama/provider-policy-api.ts"],
     dynamic: false,
