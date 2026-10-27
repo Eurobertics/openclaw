@@ -242,6 +242,16 @@ catalogSuite.define(() => {
           await expect.poll(() => identityName.inputValue()).toBe("Assistant");
           await identityName.fill("Keep this identity draft");
           expect(await identityName.inputValue()).toBe("Keep this identity draft");
+          // Identity autosave refreshes config and temporarily disables the model picker.
+          await identityName.blur();
+          await expect
+            .poll(() => readConfig("agents.entries.main.name"))
+            .toBe("Keep this identity draft");
+          await editor
+            .locator(".agent-identity-editor")
+            .getByRole("status")
+            .waitFor({ state: "hidden" });
+          await expect.poll(() => picker.locator(".picker-select__trigger").isEnabled()).toBe(true);
           await openPicker(picker);
           await option("fixture/selected").click();
           const selected = () => pickerValue(picker);
