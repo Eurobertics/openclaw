@@ -676,6 +676,11 @@ the ABI requirements of a compiler or native addon. See
 [Standalone builds](https://docs.openclaw.ai/install/standalone) for capabilities
 and compiler limits.
 
+Linux arm64 C2 testing has reproduced delayed desktop-node shutdown: quitting
+can require the app's 30-second forced-stop fallback. Linux AOT is not yet
+production-qualified. Keep JIT for production and verify shutdown on each new
+candidate; successful startup and chat do not establish complete qualification.
+
 For the **Linux App** workflow, select `desktop_runtime: aot`, supply `aot_run_id`
 from a successful push or manually dispatched workflow in this repository and
 `aot_artifact_name`. The artifact must target Linux x64 and have the standalone
