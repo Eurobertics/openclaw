@@ -1,3 +1,4 @@
+import type { Element } from "solid-js";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
 import type { createChatPaneDiscussionState } from "./chat-pane-discussion-state.ts";
@@ -8,6 +9,7 @@ import type { SidebarLayout } from "./sidebar-layout.ts";
 
 /** References to the existing owner, never a second copy of pane or connection state. */
 export type ChatBoardPanelSource = {
+  controls?: Element;
   owner: {
     readonly element: HTMLElement;
     presented: boolean;

@@ -6,6 +6,7 @@ import { isSidebarSlotVisible } from "./sidebar-layout.ts";
 
 /** Loaded with the panel; the retained pane still owns its view and all mutations. */
 export function buildChatBoardPanel({
+  controls,
   owner,
   board,
   layout,
@@ -18,6 +19,7 @@ export function buildChatBoardPanel({
   // must not replace the original session target (notably global versus a literal key).
   session.agentId ??= parseAgentSessionKey(board.snapshot.sessionKey)?.agentId;
   return {
+    controls,
     error: error || undefined,
     surface: {
       onViewRef: (element) => {

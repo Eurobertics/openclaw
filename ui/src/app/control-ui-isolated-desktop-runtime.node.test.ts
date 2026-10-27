@@ -292,7 +292,7 @@ it("prioritizes signing and route dependencies over unevaluated interaction hint
   const linkFor = (file: string) => links.find((link) => link.includes(`href="./${file}"`));
   expect(linkFor(chunkFor(entries.online).fileName)).toContain('fetchpriority="low"');
   expect(linkFor(chunkFor(entries.online).fileName)).toContain('rel="preload" as="script"');
-  expect(linkFor(chunkFor(entries.online).fileName)).toContain('crossorigin');
+  expect(linkFor(chunkFor(entries.online).fileName)).toContain("crossorigin");
   expect(linkFor(chunkFor(entries.process).fileName)).toContain('rel="preload" as="script"');
   expect(linkFor(chunkFor(entries.process).fileName)).not.toContain("fetchpriority");
   expect(linkFor(chatChunk)).toContain('rel="modulepreload"');

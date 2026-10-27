@@ -103,7 +103,6 @@ export type TestChatPane = HTMLElement &
     state: ChatPageHost;
     connectedClient: GatewayBrowserClient | null;
     applyGatewaySnapshot: (snapshot: ApplicationContext["gateway"]["snapshot"]) => void;
-    connectionGeneration: number;
     catalogLoadGeneration: number;
     continueCatalogSession: ChatPaneRuntime["continueCatalogSession"];
     forkFromMessage: (entryId: string) => Promise<void>;
@@ -111,8 +110,6 @@ export type TestChatPane = HTMLElement &
     recoverSession: () => Promise<boolean>;
     restartRecoveryComposerBanner: ChatPaneRuntime["restartRecoveryComposerBanner"];
     restoreArchivedSession: (sessionKey: string, expectedSessionId: string) => Promise<void>;
-    discardStagedAttachments?: () => void;
-    resumeStagedAttachments?: () => void;
     resolveTaskSuggestion: ChatPaneRuntime["resolveTaskSuggestion"];
     copyTaskSuggestionPrompt: ChatPaneRuntime["copyTaskSuggestionPrompt"];
     handleDocumentKeydown: (event: KeyboardEvent) => void;
@@ -150,12 +147,10 @@ export type TestChatPane = HTMLElement &
     resetOlderMessagesViewport: () => void;
     readReplyMessage: (messageId: string) => unknown;
     hasOlderMessages: () => boolean;
-    beginHeaderRename: (row: GatewaySessionRow) => void;
     cancelHeaderRename: () => void;
     commitHeaderRename: () => void;
     handleHeaderMenuAction: ChatPaneRuntime["handleHeaderMenuAction"];
     loadHeaderMenuData: ChatPaneRuntime["loadHeaderMenuData"];
-    changeHeaderPlacement: ChatPaneRuntime["changeHeaderPlacement"];
     markSessionRead: (row: GatewaySessionRow | undefined) => void;
     applySessionsState: (stateValue: ApplicationContext["sessions"]["state"]) => void;
     renderPaneHeader: ChatPaneRuntime["renderPaneHeader"];

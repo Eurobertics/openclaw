@@ -22,7 +22,9 @@ import { installDialogPolyfill } from "../../test-helpers/modal-dialog.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { waitForSolid } from "../../test-helpers/solid-settle.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
+import { ChatBoardResetConfirmation } from "./chat-board-reset-confirmation.tsx";
 import { projectChatFields } from "./chat-field-projection.ts";
+import type { ChatBoardPanelSource } from "./chat-pane-panel-source.ts";
 import { ChatPaneRuntime } from "./chat-pane-render.ts";
 import {
   configureGatewayBoardPane,
@@ -31,8 +33,6 @@ import {
 } from "./chat-pane-runtime.test-support.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import { ChatPaneStateOwner } from "./chat-pane-state-owner.ts";
-import { ChatBoardResetConfirmation } from "./chat-board-reset-confirmation.tsx";
-import type { ChatBoardPanelSource } from "./chat-pane-panel-source.ts";
 import { mountBoardPanel } from "./chat-pane.test-support.ts";
 import { createInitialChatRealtimeState } from "./chat-realtime.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -768,6 +768,16 @@ describe("chat pane board shell", () => {
   it("keeps the board and its iframe connected when a retained pane hides and returns", async () => {
     const pane = createTestPane();
     pane.boardProvider = createMockBoardProvider(pane.state.sessionKey);
+    const controls = document.createElement("button");
+    controls.textContent = "Dashboard controls";
+    const panelSource = pane.boardPanelSource.bind(pane);
+    pane.boardPanelSource = (board, layout) => {
+      const source = panelSource(board, layout);
+      if (source) {
+        source.controls = controls;
+      }
+      return source;
+    };
     const container = document.body.appendChild(document.createElement("div"));
     const layout = openSlot({ columns: [] }, "dashboard");
     const mounted = mountBoardPanel(pane, layout, container);
@@ -779,6 +789,7 @@ describe("chat pane board shell", () => {
         expect(container.querySelector("openclaw-board-view")?.active).toBe(true),
       );
       const board = container.querySelector("openclaw-board-view")!;
+      expect(container.contains(controls)).toBe(true);
       const frame = board.appendChild(document.createElement("iframe"));
       for (const visible of [false, true]) {
         pane.visuallyPresented = visible;
@@ -786,6 +797,7 @@ describe("chat pane board shell", () => {
         expect(container.querySelector("openclaw-board-view")).toBe(board);
         expect(frame.isConnected).toBe(true);
         expect(board.active).toBe(visible);
+        expect(container.contains(controls)).toBe(true);
       }
     } finally {
       mounted.unmount();
