@@ -43,14 +43,32 @@ async function openChat(options: Parameters<typeof installMockGateway>[1] = {}) 
 
 suite.define(() => {
   it("keeps approvals passive through detail review and queued decisions", async () => {
-    const { page, gateway, request } = await openChat({ sessionKey: activeSessionKey });
+    const { page, gateway, request } = await openChat({
+      sessionKey: activeSessionKey,
+      sessions: [
+        { key: activeSessionKey, label: "Main", kind: "direct", updatedAt: 1_000 },
+        {
+          key: "agent:main:other",
+          label: "Review navigation",
+          kind: "direct",
+          updatedAt: 2_000,
+          worktree: { id: "review", branch: "review/navigation", repoRoot: "/projects/atlas" },
+          spawnedCwd: "/projects/atlas-review",
+        },
+      ],
+    });
     const initial = approval("approval-inline", "echo inline", 1_000);
     await gateway.emitGatewayEvent("exec.approval.requested", {
       ...initial,
-      request: { ...initial.request, resolvedPath: "/usr/bin/echo" },
+      request: { ...initial.request, host: "sandbox", resolvedPath: "/usr/bin/echo" },
     });
 
     await inlineApproval(page, "approval-inline").waitFor();
+    expect(
+      await inlineApproval(page, "approval-inline")
+        .locator(".exec-approval-prompt .exec-approval-host")
+        .count(),
+    ).toBe(0);
     expect(await page.locator("openclaw-modal-dialog").count()).toBe(0);
     await inlineApproval(page, initial.id)
       .getByRole("button", { name: "Request details", exact: true })
@@ -80,6 +98,10 @@ suite.define(() => {
     const modal = page.locator("openclaw-exec-approval .exec-approval-card");
     await modal.locator(".exec-approval-list__item", { hasText: "echo other" }).click();
     await expect.poll(() => modal.getAttribute("data-approval-id")).toBe("approval-other");
+    expect(await modal.locator(".exec-approval-source").textContent()).toContain(
+      "Review navigation",
+    );
+    expect(await modal.locator(".exec-approval-source").textContent()).toContain("atlas");
     await gateway.deferNext("exec.approval.resolve", { id: "approval-other" });
     const allow = modal.getByRole("button", { name: "Allow once", exact: true });
     await allow.click();
@@ -89,6 +111,7 @@ suite.define(() => {
     await gateway.resolveDeferred("exec.approval.resolve");
     await expect.poll(() => modal.getAttribute("data-approval-id")).toBe("approval-inline");
     await expect.poll(() => modal.getByRole("button", { name: /echo other/ }).count()).toBe(0);
+    expect(await modal.locator(".exec-approval-source").count()).toBe(0);
   });
 
   it("keeps no-auth Inbox approvals readable while blocking decisions", async () => {

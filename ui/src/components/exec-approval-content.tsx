@@ -1,10 +1,16 @@
 import { Show, createMemo, createUniqueId, onSettled } from "solid-js";
 import { formatApprovalDisplayPath } from "../../../src/infra/approval-display-paths.ts";
 import { normalizeCommandSpans } from "../../../src/shared/exec-approval-command-spans.ts";
+import type { GatewaySessionRow } from "../api/types.ts";
 import { summarizeApprovalScopeLabel } from "../app/approval-presentation.ts";
 import type { ExecApprovalRequest, ExecApprovalRequestPayload } from "../app/exec-approval.ts";
 import { t } from "../lib/reactive/i18n.ts";
-import { shortenOpaqueIdRuns } from "../lib/session-display.ts";
+import {
+  resolveSessionDisplayName,
+  resolveSessionWorkContext,
+  shortenOpaqueIdRuns,
+} from "../lib/session-display.ts";
+import { areUiSessionKeysEquivalent } from "../lib/sessions/session-key.ts";
 import type { JSX as SolidJSX } from "../types/solid-elements.d.ts";
 import { Icon } from "./solid/icon.tsx";
 import { Popover } from "./solid/popover.tsx";
@@ -124,6 +130,35 @@ function renderDetails(content: SolidJSX.Element) {
   );
 }
 
+export function ExecApprovalSessionContext(props: {
+  sessionKey?: string | null;
+  session?: GatewaySessionRow;
+  currentSessionKey?: string;
+}) {
+  const sessionName = createMemo(() => {
+    const key = props.sessionKey;
+    return key &&
+      !(props.currentSessionKey && areUiSessionKeysEquivalent(key, props.currentSessionKey))
+      ? resolveSessionDisplayName(key, props.session)
+      : undefined;
+  });
+  const project = createMemo(() => {
+    const context = props.session ? resolveSessionWorkContext(props.session) : undefined;
+    return context?.kind === "project" ? context : undefined;
+  });
+  return (
+    <Show when={sessionName() || project()}>
+      <div class="exec-approval-source">
+        <Show when={sessionName()}>{(name) => <span>{name()}</span>}</Show>
+        <Show when={sessionName() && project()}> · </Show>
+        <Show when={project()}>
+          {(context) => <span title={context().path}>{context().name}</span>}
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 export function ExecApprovalBody(props: {
   request: ExecApprovalRequestPayload;
   variant: "inline" | "modal";
@@ -132,12 +167,14 @@ export function ExecApprovalBody(props: {
   lastError?: string;
 }) {
   const detailsId = createUniqueId();
+  const destination = () =>
+    props.request.host === "node" && (props.nodeDisplayName || props.request.nodeId);
   return (
     <div class="exec-approval-terminal">
       <div class="exec-approval-shell mono">
-        <Show when={(props.request.host && props.request.host !== "gateway") || props.request.cwd}>
+        <Show when={destination() || props.request.cwd}>
           <div class="exec-approval-prompt">
-            <Show when={props.request.host && props.request.host !== "gateway"}>
+            <Show when={destination()}>
               <span>
                 <span class="sr-only">{t("execApproval.labels.host")}: </span>
                 <ExecApprovalHost request={props.request} nodeDisplayName={props.nodeDisplayName} />

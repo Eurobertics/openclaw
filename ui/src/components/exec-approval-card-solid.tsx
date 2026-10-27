@@ -27,6 +27,7 @@ import {
 import { createApprovalDecisionPresentation } from "./approval-decision-presentation.ts";
 import {
   ExecApprovalBody,
+  ExecApprovalSessionContext,
   MobileExecApprovalBody,
   renderPluginBody,
 } from "./exec-approval-content.tsx";
@@ -61,6 +62,7 @@ const MODAL_DECISION_ORDER = [
 export type ExecApprovalCardProps = {
   approval: ExecApprovalRequest;
   sourceSession?: GatewaySessionRow;
+  currentSessionKey?: string;
   nodeDisplayName?: string;
   busy: boolean;
   connected: boolean;
@@ -437,6 +439,13 @@ function ExecApprovalCardContent(
                 })}
               </div>
             )}
+          </Show>
+          <Show when={props.variant === "modal"}>
+            <ExecApprovalSessionContext
+              sessionKey={active().sourceSessionKey ?? active().request.sessionKey}
+              session={props.sourceSession}
+              currentSessionKey={props.currentSessionKey}
+            />
           </Show>
           <Show when={active().kind !== "exec"}>
             <ApprovalCountdown

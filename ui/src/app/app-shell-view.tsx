@@ -465,6 +465,8 @@ export function ApplicationShell(props: {
               canGrant: view().overlaySnapshot.approvalCanGrant,
               errors: view().overlaySnapshot.approvalErrors,
               nodeNames: view().overlaySnapshot.approvalNodeNames,
+              sessions: view().context.sessions.state.result?.sessions,
+              currentSessionKey: view().sessionRoute ? props.host.activeSessionKey : undefined,
               onDecision: (
                 approvalId: string,
                 decision: Parameters<
