@@ -15,7 +15,6 @@ import {
   historyLane,
   maintenanceLane,
   projectionLane,
-  rotateDatabaseWorkers,
   targetDiscoveryLane,
   transcriptSearchLane,
   withSessionHistoryWorkerReadCandidates,
