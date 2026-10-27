@@ -2,6 +2,8 @@ import { once } from "node:events";
 import { setImmediate } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
+import { CliPluginInvocationResources } from "../cli/plugin-invocation-resources.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { mocks, resetRunnerTestState, runNodeHost } from "./runner.test-support.js";
 
 const { GatewayClient } =
@@ -17,6 +19,59 @@ describe("node runner shutdown", () => {
     mocks.activeRuntime.close.mockReset().mockResolvedValue(undefined);
     mocks.activeRuntime.cancelAll.mockReset().mockResolvedValue(undefined);
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it.each(["before entry", "during config read"])("honors CLI cancellation %s", async (stage) => {
+    vi.useFakeTimers();
+    mocks.useRealGatewayClient = false;
+    mocks.startGatewayClientWhenEventLoopReady.mockResolvedValue(mocks.readiness(true));
+    const startup = createDeferredCore<null>();
+    const entry = createDeferredCore();
+    if (stage === "during config read") {
+      mocks.loadNodeHostConfig.mockReturnValueOnce(startup.promise);
+    }
+    const previousExitCode = process.exitCode;
+    const inherited = new Set(process.listeners("SIGTERM"));
+    const resources = new CliPluginInvocationResources();
+    const terminate = () => {
+      for (const listener of process.listeners("SIGTERM")) {
+        if (!inherited.has(listener)) {
+          listener("SIGTERM");
+        }
+      }
+    };
+    let completed = false;
+    const running = resources.run(async () => {
+      if (stage === "before entry") {
+        await entry.promise;
+      }
+      await runNodeHost({ gatewayHost: "127.0.0.1", gatewayPort: 18789 });
+    });
+    void running.then(() => {
+      completed = true;
+    });
+    try {
+      if (stage === "during config read") {
+        await vi.waitFor(() => expect(mocks.loadNodeHostConfig).toHaveBeenCalledOnce());
+      }
+      resources.beginClose(new DOMException("CLI stopping (SIGTERM)", "AbortError"));
+      entry.resolve();
+      startup.resolve(null);
+      await vi.waitFor(() => expect(completed).toBe(true));
+      await expect(running).resolves.toBeUndefined();
+      expect(mocks.activeRuntime.close).toHaveBeenCalledTimes(stage === "before entry" ? 0 : 1);
+    } finally {
+      startup.resolve(null);
+      entry.resolve();
+      terminate();
+      await running;
+      await resources.release();
+      mocks.startGatewayClientWhenEventLoopReady
+        .mockReset()
+        .mockResolvedValue(mocks.readiness(false));
+      process.exitCode = previousExitCode;
+    }
   });
 
   it("does not restart runtime cleanup when the stopped transport closes", async () => {
