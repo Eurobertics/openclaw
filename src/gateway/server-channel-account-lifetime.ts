@@ -1,7 +1,7 @@
 import { resolveChannelAccount } from "../channels/account-resolution.js";
 import type { ChannelGatewayContextV2 } from "../channels/plugins/types.adapters.js";
 import type { AnyChannelPlugin as ChannelPlugin } from "../channels/plugins/types.plugin.js";
-import type { ChannelId } from "../channels/plugins/types.public.js";
+import type { ChannelAccountSnapshot, ChannelId } from "../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
@@ -20,12 +20,16 @@ import type {
   ChannelAccountLifecycle,
   ChannelAccountLifetime,
   ChannelAccountStopOutcome,
-  ChannelRuntimeStore,
   StartChannelOptions,
 } from "./server-channel-runtime.types.js";
 
 export function captureChannelAccountRestart(params: {
-  store: ChannelRuntimeStore | undefined;
+  store:
+    | {
+        lifetimes: ReadonlyMap<string, ChannelAccountLifetime>;
+        runtimes: ReadonlyMap<string, ChannelAccountSnapshot>;
+      }
+    | undefined;
   channelId: ChannelId;
   accountId: string;
   reason: StartChannelOptions["reason"];

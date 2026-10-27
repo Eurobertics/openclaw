@@ -2,9 +2,7 @@ import type { ChannelGatewayContextV2 } from "../channels/plugins/types.adapters
 import type { AnyChannelPlugin as ChannelPlugin } from "../channels/plugins/types.plugin.js";
 import type { ChannelId, ChannelAccountSnapshot } from "../channels/plugins/types.public.js";
 import type { PluginRuntimeCapabilityLease } from "../plugins/capability-lease.js";
-import type { PluginHttpRouteHandoff } from "../plugins/http-registry.js";
 import type { PluginServiceSchedulerV1 } from "../plugins/service-scheduler.types.js";
-import type { ChannelStartFence } from "./server-channel-start-fence.js";
 
 export type ChannelAccountLifetime = {
   plugin: ChannelPlugin;
@@ -20,16 +18,6 @@ export type ChannelAccountLifetime = {
 export type ChannelAccountStopOutcome =
   | { status: "fulfilled" }
   | { status: "rejected"; error: unknown };
-
-export type ChannelRuntimeStore = {
-  startFence?: ChannelStartFence;
-  lifetimes: Map<string, ChannelAccountLifetime>;
-  routeHandoffs: Map<string, PluginHttpRouteHandoff>;
-  starting: Map<string, Promise<void>>;
-  stops: Map<string, ChannelAccountStopState>;
-  tasks: Map<string, Promise<unknown>>;
-  runtimes: Map<string, ChannelAccountSnapshot>;
-};
 
 export type StopChannelOptions = {
   manual?: boolean;

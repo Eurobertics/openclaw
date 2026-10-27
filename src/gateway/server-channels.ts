@@ -73,12 +73,12 @@ import {
   runChannelAccountStop,
 } from "./server-channel-account-lifetime.js";
 import { createChannelAutostartRecovery } from "./server-channel-autostart-recovery.js";
+import type { ChannelRuntimeStore } from "./server-channel-runtime-store.js";
 import type {
   ChannelAccountStartOutcome,
   ChannelAccountLifecycle,
   ChannelAccountStopOutcome,
   ChannelAccountStopState,
-  ChannelRuntimeStore,
   ChannelRuntimeSnapshot,
   ChannelRuntimeSnapshotOptions,
   StartChannelOptions,
