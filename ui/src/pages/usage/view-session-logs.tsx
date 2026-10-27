@@ -30,9 +30,10 @@ export function SessionLogList(props: {
   const mountedRows = new Set<HTMLDivElement>();
   const [viewport, setViewport] = createSignal<HTMLElement | null>();
   const [window, setWindow] = createSignal<{ items: VirtualItem[]; height: number }>();
-  const [focused, setFocused] = createSignal<ParsedSessionLog | undefined>(() => {
-    props.entries;
-    return undefined;
+  // Reordering can retain focus only while the same row identity remains admitted.
+  const [focused, setFocused] = createSignal<ParsedSessionLog | undefined>((previous) => {
+    const entries = props.entries;
+    return previous && entries.includes(previous) ? previous : undefined;
   });
   const [disclosures, setDisclosures] = createSignal<{
     receipt: ParsedSessionLog[];
@@ -52,8 +53,8 @@ export function SessionLogList(props: {
   const rowIndexes = createMemo(() => new Map(props.rows.map((entry, index) => [entry, index])));
   const itemKey = createMemo(() => {
     const rows = props.rows;
-    const indexes = receiptIndexes();
-    return (index: number) => indexes.get(rows[index]!)!;
+    const staticIndexes = receiptIndexes();
+    return (index: number) => staticIndexes.get(rows[index]!)!;
   });
   // Before mount, render only the initial window; standalone consumers without
   // the shell scroller fall back to the unchanged eager list after settling.
@@ -74,15 +75,20 @@ export function SessionLogList(props: {
       indexes.add(focusIndex);
       const next = interactive.find((index) => index > focusIndex);
       const previous = interactive.findLast((index) => index < focusIndex);
-      if (next !== undefined) indexes.add(next);
-      if (previous !== undefined) indexes.add(previous);
+      if (next !== undefined) {
+        indexes.add(next);
+      }
+      if (previous !== undefined) {
+        indexes.add(previous);
+      }
     }
     return [...indexes].filter((index) => index >= 0 && index < rows.length);
   });
   const rangeExtractor = createMemo(() => {
-    const indexes = pinned();
+    // TanStack keeps each callback until the next measured memo snapshot.
+    const staticIndexes = pinned();
     return (range: Range) =>
-      [...new Set([...defaultRangeExtractor(range), ...indexes])].toSorted((a, b) => a - b);
+      [...new Set([...defaultRangeExtractor(range), ...staticIndexes])].toSorted((a, b) => a - b);
   });
   const publish = () => {
     if (virtualizer.options.enabled) {
@@ -118,7 +124,9 @@ export function SessionLogList(props: {
       windowed: windowed(),
     }),
     (next) => {
-      if (!next?.viewport) return;
+      if (!next?.viewport) {
+        return;
+      }
       if (next.viewport.clientHeight === 0) {
         // Parked routes must not replace real row sizes with hidden geometry.
         virtualizer.setOptions({ ...virtualizer.options, useCachedMeasurements: true });
@@ -143,7 +151,9 @@ export function SessionLogList(props: {
         virtualizer.measure();
       }
       if (next.windowed) {
-        for (const row of mountedRows) virtualizer.measureElement(row);
+        for (const row of mountedRows) {
+          virtualizer.measureElement(row);
+        }
       }
       publish();
     },
@@ -160,7 +170,9 @@ export function SessionLogList(props: {
   );
   const items = createMemo(() => new Map(window()?.items.map((item) => [item.index, item])));
   const visibleRows = createMemo(() => {
-    if (!windowed()) return props.rows;
+    if (!windowed()) {
+      return props.rows;
+    }
     const range = window()
       ? items().keys()
       : Array.from({ length: Math.min(INITIAL_ROW_COUNT, props.rows.length) }, (_, index) => index);
@@ -179,7 +191,9 @@ export function SessionLogList(props: {
     const open = () => disclosures().overrides.get(rowProps.entry) ?? disclosures().expanded;
     onSettled(() => {
       mountedRows.add(element);
-      if (virtualizer.options.enabled) virtualizer.measureElement(element);
+      if (virtualizer.options.enabled) {
+        virtualizer.measureElement(element);
+      }
       return () => {
         mountedRows.delete(element);
         virtualizer.measureElement(null);
@@ -231,10 +245,15 @@ export function SessionLogList(props: {
               const expanded = event.currentTarget.open;
               const entry = rowProps.entry;
               setDisclosures((current) => {
-                if ((current.overrides.get(entry) ?? current.expanded) === expanded) return current;
+                if ((current.overrides.get(entry) ?? current.expanded) === expanded) {
+                  return current;
+                }
                 const overrides = new Map(current.overrides);
-                if (expanded === current.expanded) overrides.delete(entry);
-                else overrides.set(entry, expanded);
+                if (expanded === current.expanded) {
+                  overrides.delete(entry);
+                } else {
+                  overrides.set(entry, expanded);
+                }
                 return { ...current, overrides };
               });
             }}

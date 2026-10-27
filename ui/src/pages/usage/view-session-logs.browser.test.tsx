@@ -134,7 +134,7 @@ it("windows long conversations in the page scroller and retains local disclosure
   row(0)!.scrollIntoView();
   await userEvent.click(tools(0)!.querySelector("summary")!);
   await waitForSolid(() => expect(tools(0)?.open).toBe(true));
-  fixture.setLogs(fixture.logs().map((entry) => ({ ...entry })));
+  fixture.setLogs(structuredClone(fixture.logs()));
   await waitForSolid(() => expect(tools(0)?.open).toBe(false));
   expect(getComputedStyle(fixture.list()).overflowY).not.toBe("auto");
 });
@@ -183,9 +183,9 @@ it("keeps visible messages mounted when the preceding chart section changes heig
       ?.closest<HTMLElement>(".session-log-entry");
   };
   viewport.scrollTop = listOffset() + list().getBoundingClientRect().height / 2;
-  await new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  );
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
   await waitForSolid(() => expect(centeredRow()).toBeTruthy());
   const originalIndex = Number(centeredRow()!.dataset.index);
 
@@ -213,14 +213,17 @@ it.each([
   await waitForSolid(() => {
     const content = row(0)!.querySelector<HTMLElement>(".session-log-content")!;
     expect(Number.parseFloat(getComputedStyle(content).fontSize)).toBe(fontSize);
-    if (lines === 0) expect(content.getBoundingClientRect().height).toBeLessThan(60);
-    else expect(content.getBoundingClientRect().height).toBeGreaterThan(600);
+    if (lines === 0) {
+      expect(content.getBoundingClientRect().height).toBeLessThan(60);
+    } else {
+      expect(content.getBoundingClientRect().height).toBeGreaterThan(600);
+    }
   });
   viewport.scrollTop = listOffset() + list().getBoundingClientRect().height / 2;
   // Let initial row measurements settle before retaining the visible scroll anchor.
-  await new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  );
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
   await waitForSolid(() => {
     const bounds = viewport.getBoundingClientRect();
     const visible = [...viewport.querySelectorAll<HTMLElement>(".session-log-entry")].filter(
