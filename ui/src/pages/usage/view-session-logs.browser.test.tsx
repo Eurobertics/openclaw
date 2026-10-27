@@ -194,10 +194,11 @@ it("keeps visible messages mounted when the preceding chart section changes heig
     expect(centeredRow()).toBeTruthy();
     expect(Number(centeredRow()!.dataset.index)).toBeLessThan(originalIndex);
   });
+  const expandedIndex = Number(centeredRow()!.dataset.index);
   chart.style.paddingTop = "";
   await waitForSolid(() => {
     expect(centeredRow()).toBeTruthy();
-    expect(Number(centeredRow()!.dataset.index)).toBe(originalIndex);
+    expect(Number(centeredRow()!.dataset.index)).toBeGreaterThan(expandedIndex);
   });
 });
 

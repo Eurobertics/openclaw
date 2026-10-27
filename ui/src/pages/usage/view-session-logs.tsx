@@ -26,6 +26,7 @@ export function SessionLogList(props: {
 }) {
   let list: HTMLDivElement;
   let measuredReceipt: ParsedSessionLog[] | undefined;
+  const getViewport = () => list.closest<HTMLElement>("main.content");
   const mountedRows = new Set<HTMLDivElement>();
   const [viewport, setViewport] = createSignal<HTMLElement | null>();
   const [window, setWindow] = createSignal<{ items: VirtualItem[]; height: number }>();
@@ -84,15 +85,15 @@ export function SessionLogList(props: {
       [...new Set([...defaultRangeExtractor(range), ...indexes])].toSorted((a, b) => a - b);
   });
   const publish = () => {
-    if (windowed()) {
+    if (virtualizer.options.enabled) {
       setWindow({ items: virtualizer.getVirtualItems(), height: virtualizer.getTotalSize() });
     }
   };
   const virtualizer = new Virtualizer<HTMLElement, HTMLDivElement>({
     count: 0,
     enabled: false,
-    getScrollElement: () => viewport() ?? null,
-    initialOffset: () => viewport()?.scrollTop ?? 0,
+    getScrollElement: getViewport,
+    initialOffset: () => getViewport()?.scrollTop ?? 0,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     observeElementRect,
     observeElementOffset,
@@ -103,7 +104,7 @@ export function SessionLogList(props: {
     onChange: publish,
   });
   onSettled(() => {
-    setViewport(list.closest<HTMLElement>("main.content"));
+    setViewport(getViewport());
     const { _didMount: mountVirtualizer } = virtualizer;
     return mountVirtualizer();
   });
@@ -148,7 +149,7 @@ export function SessionLogList(props: {
     },
     {
       targets: () => {
-        const scroller = list.closest<HTMLElement>("main.content");
+        const scroller = getViewport();
         // Earlier Usage sections can move the list without resizing it.
         const page = list.closest<HTMLElement>(".usage-page");
         return [list, ...(scroller ? [scroller] : []), ...(page ? [page] : [])];
@@ -178,7 +179,7 @@ export function SessionLogList(props: {
     const open = () => disclosures().overrides.get(rowProps.entry) ?? disclosures().expanded;
     onSettled(() => {
       mountedRows.add(element);
-      if (windowed()) virtualizer.measureElement(element);
+      if (virtualizer.options.enabled) virtualizer.measureElement(element);
       return () => {
         mountedRows.delete(element);
         virtualizer.measureElement(null);
