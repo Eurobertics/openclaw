@@ -16,23 +16,13 @@ import { withPluginServiceScheduler } from "../plugins/service-scheduler-binding
 import { createPluginServiceSchedulerRunner } from "../plugins/service-scheduler-context.js";
 import { createPluginServiceScheduler } from "../plugins/service-scheduler.js";
 import type { PluginServiceSchedulerV1 } from "../plugins/service-scheduler.types.js";
-import type { ChannelRuntimeStore, StartChannelOptions } from "./server-channel-runtime.types.js";
-import type { ChannelManager } from "./server-channels.js";
-
-export type ChannelAccountLifetime = {
-  plugin: ChannelPlugin;
-  abort: AbortController;
-  capabilityLease: PluginRuntimeCapabilityLease;
-  scheduler: PluginServiceSchedulerV1;
-  teardown?: {
-    context: Omit<ChannelGatewayContextV2, "setStatus">;
-    run: (context: ChannelGatewayContextV2) => Promise<void>;
-  };
-};
-
-export type ChannelAccountStopOutcome =
-  | { status: "fulfilled" }
-  | { status: "rejected"; error: unknown };
+import type {
+  ChannelAccountLifecycle,
+  ChannelAccountLifetime,
+  ChannelAccountStopOutcome,
+  ChannelRuntimeStore,
+  StartChannelOptions,
+} from "./server-channel-runtime.types.js";
 
 export function captureChannelAccountRestart(params: {
   store: ChannelRuntimeStore | undefined;
@@ -40,11 +30,11 @@ export function captureChannelAccountRestart(params: {
   accountId: string;
   reason: StartChannelOptions["reason"];
   manager: Pick<
-    ChannelManager,
+    ChannelAccountLifecycle,
     "stopChannel" | "startChannel" | "isAccountListed" | "isManuallyStopped"
   >;
   log: SubsystemLogger;
-}): ReturnType<ChannelManager["captureAccountRestart"]> {
+}): ReturnType<ChannelAccountLifecycle["captureAccountRestart"]> {
   const { store, channelId, accountId, reason, manager, log } = params;
   let expectedLifetime = store?.lifetimes.get(accountId);
   if (!store || !expectedLifetime) {

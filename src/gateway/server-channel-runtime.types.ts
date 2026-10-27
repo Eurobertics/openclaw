@@ -1,10 +1,25 @@
+import type { ChannelGatewayContextV2 } from "../channels/plugins/types.adapters.js";
+import type { AnyChannelPlugin as ChannelPlugin } from "../channels/plugins/types.plugin.js";
 import type { ChannelId, ChannelAccountSnapshot } from "../channels/plugins/types.public.js";
+import type { PluginRuntimeCapabilityLease } from "../plugins/capability-lease.js";
 import type { PluginHttpRouteHandoff } from "../plugins/http-registry.js";
-import type {
-  ChannelAccountLifetime,
-  ChannelAccountStopOutcome,
-} from "./server-channel-account-lifetime.js";
+import type { PluginServiceSchedulerV1 } from "../plugins/service-scheduler.types.js";
 import type { ChannelStartFence } from "./server-channel-start-fence.js";
+
+export type ChannelAccountLifetime = {
+  plugin: ChannelPlugin;
+  abort: AbortController;
+  capabilityLease: PluginRuntimeCapabilityLease;
+  scheduler: PluginServiceSchedulerV1;
+  teardown?: {
+    context: Omit<ChannelGatewayContextV2, "setStatus">;
+    run: (context: ChannelGatewayContextV2) => Promise<void>;
+  };
+};
+
+export type ChannelAccountStopOutcome =
+  | { status: "fulfilled" }
+  | { status: "rejected"; error: unknown };
 
 export type ChannelRuntimeStore = {
   startFence?: ChannelStartFence;
@@ -78,4 +93,20 @@ export type StartChannelOptions = {
   skipUnavailableAccounts?: boolean;
   deferAccountStartUntil?: Promise<void>;
   manual?: boolean;
+};
+
+export type ChannelAccountLifecycle = {
+  startChannel: (
+    channel: ChannelId,
+    accountId?: string,
+    opts?: StartChannelOptions,
+  ) => Promise<ReadonlyMap<string, ChannelAccountStartOutcome>>;
+  stopChannel: (channel: ChannelId, accountId?: string, opts?: StopChannelOptions) => Promise<void>;
+  captureAccountRestart: (
+    channel: ChannelId,
+    accountId: string,
+    reason: StartChannelOptions["reason"],
+  ) => ((shouldContinue: () => boolean) => Promise<boolean>) | undefined;
+  isManuallyStopped: (channelId: ChannelId, accountId: string) => boolean;
+  isAccountListed: (channelId: ChannelId, accountId: string) => boolean;
 };

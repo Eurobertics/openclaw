@@ -71,11 +71,12 @@ import {
   captureChannelAccountRestart,
   createChannelAccountLifetime,
   runChannelAccountStop,
-  type ChannelAccountStopOutcome,
 } from "./server-channel-account-lifetime.js";
 import { createChannelAutostartRecovery } from "./server-channel-autostart-recovery.js";
 import type {
   ChannelAccountStartOutcome,
+  ChannelAccountLifecycle,
+  ChannelAccountStopOutcome,
   ChannelAccountStopState,
   ChannelRuntimeStore,
   ChannelRuntimeSnapshot,
@@ -133,23 +134,12 @@ type ChannelManagerOptions = {
   isClosing?: () => boolean;
 };
 
-export type ChannelManager = {
+export type ChannelManager = ChannelAccountLifecycle & {
   getRuntimeSnapshot: (options?: ChannelRuntimeSnapshotOptions) => ChannelRuntimeSnapshot;
   pauseChannelStarts: (
     channelIds: Iterable<ChannelId>,
   ) => (outcome: "published" | "rollback" | "failed", channelIds?: ReadonlySet<ChannelId>) => void;
   startChannels: () => Promise<void>;
-  startChannel: (
-    channel: ChannelId,
-    accountId?: string,
-    opts?: StartChannelOptions,
-  ) => Promise<ReadonlyMap<string, ChannelAccountStartOutcome>>;
-  stopChannel: (channel: ChannelId, accountId?: string, opts?: StopChannelOptions) => Promise<void>;
-  captureAccountRestart: (
-    channel: ChannelId,
-    accountId: string,
-    reason: StartChannelOptions["reason"],
-  ) => ((shouldContinue: () => boolean) => Promise<boolean>) | undefined;
   releaseChannelRouteHandoffs: (channel: ChannelId, accountId?: string) => void;
   setAutostartSuppression: (suppression: ChannelAutostartSuppression | null) => void;
   getAutostartSuppression: () => ChannelAutostartSuppression | null;
@@ -157,8 +147,6 @@ export type ChannelManager = {
   setAmbientAutostartSuppressedChannelIds: (channelIds: ReadonlySet<string>) => void;
   isAmbientAutostartSuppressed: (channelId: string) => boolean;
   markChannelLoggedOut: (channelId: ChannelId, cleared: boolean, accountId?: string) => void;
-  isManuallyStopped: (channelId: ChannelId, accountId: string) => boolean;
-  isAccountListed: (channelId: ChannelId, accountId: string) => boolean;
   isAutoRestartScheduled: (channelId: ChannelId, accountId: string) => boolean;
   resetRestartAttempts: (channelId: ChannelId, accountId: string) => void;
   isHealthMonitorEnabled: (channelId: ChannelId, accountId: string) => boolean;

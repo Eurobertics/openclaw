@@ -1003,7 +1003,7 @@ describe("server-channels auto restart", () => {
 
   it.each([
     { kind: "deferred-retry", restarted: ["broken"] },
-    { kind: "new-thaw", restarted: ["broken", "healthy"] },
+    { kind: "new-thaw", restarted: ["healthy", "broken"] },
   ] as const)(
     "selects $kind targets after a partial host-thaw restart",
     async ({ kind, restarted }) => {

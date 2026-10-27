@@ -86,7 +86,7 @@ describe("channel account scheduling lifetime", () => {
     const releaseStop = createDeferred();
     let stopCount = 0;
     const startAccount = vi.fn(async (context: ChannelGatewayContextV2<TestAccount>) => {
-      context.setStatus({ lastError: "transport disconnected" });
+      context.setStatus({ accountId: context.accountId, lastError: "transport disconnected" });
       await waitForAbort(context.abortSignal);
     });
     const plugin = createTestPlugin({
