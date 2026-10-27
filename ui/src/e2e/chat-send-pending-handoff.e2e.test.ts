@@ -2,7 +2,6 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Page } from "playwright";
 import { expect, it } from "vitest";
-import { recordControlUiE2eFailureFacts } from "../test-helpers/control-ui-e2e-diagnostics.ts";
 import { installMockGateway, type MockGatewayControls } from "../test-helpers/control-ui-e2e.ts";
 import { waitForChatScrollIdle } from "./chat-flow.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
@@ -506,64 +505,6 @@ suite.define(() => {
         await capture("consumed-prompt-latest-page.png");
         const userBubbles = page.locator(".chat-bubble").getByText(prompt, { exact: true });
         const latestPromptCount = await userBubbles.count();
-        if (latestPromptCount !== 0) {
-          const facts = await page.locator('openclaw-chat-pane[aria-hidden="false"]').evaluate(
-            (element, expected) => {
-              // SAFETY: The suite installs this pane-state adapter for synthetic diagnostics.
-              const state = (
-                element as HTMLElement & {
-                  state: {
-                    chatMessages: Array<{
-                      role?: string;
-                      __openclaw?: { id?: string; seq?: number; idempotencyKey?: string };
-                    }>;
-                    chatQueue: Array<{ sendRunId?: string }>;
-                    currentSessionId?: string;
-                    chatLoading: boolean;
-                  };
-                }
-              ).state;
-              const users = state.chatMessages.filter((message) => message.role === "user");
-              const bubbles = [...element.querySelectorAll<HTMLElement>(".chat-bubble")].filter(
-                (bubble) => bubble.textContent?.includes(expected.prompt),
-              );
-              return {
-                userSources: users.length,
-                uncommittedUserSources: users.filter(
-                  (message) =>
-                    !message["__openclaw"]?.id && message["__openclaw"]?.seq === undefined,
-                ).length,
-                submissionUserSources: users.filter(
-                  (message) => message["__openclaw"]?.idempotencyKey === `${expected.runId}:user`,
-                ).length,
-                queueItems: state.chatQueue.length,
-                submissionQueueItems: state.chatQueue.filter(
-                  (item) => item.sendRunId === expected.runId,
-                ).length,
-                sessionMatches: state.currentSessionId === expected.sessionId,
-                historyLoading: state.chatLoading,
-                currentPromptBubbles: bubbles.length,
-                canonicalPromptBubbles: bubbles.filter(
-                  (bubble) => bubble.dataset.entryId === expected.entryId,
-                ).length,
-              };
-            },
-            { prompt, runId, sessionId, entryId: USER_ECHO_ENTRY_ID },
-          );
-          const historyRequests = await gateway.getRequests("chat.history");
-          recordControlUiE2eFailureFacts(page, {
-            consumedPromptAtLatestPage: {
-              sampledPromptBubbles: latestPromptCount,
-              ...facts,
-              historyRequests: historyRequests.length,
-              olderPageRequests: historyRequests.filter(
-                // SAFETY: chat.history fixtures accept this optional numeric paging field.
-                (request) => (request.params as { offset?: number }).offset === 80,
-              ).length,
-              sendRequests: (await gateway.getRequests("chat.send")).length,
-            },
-          });
-        }
         await gateway.waitForRequest("chat.history", { match: { offset: 80 } });
         await gateway.resolveDeferred("chat.history");
         await waitForChatScrollIdle(page);
