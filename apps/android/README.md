@@ -357,7 +357,10 @@ logs and signing files are excluded. Local Linux runs can opt in with
 `ANDROID_SCREENSHOT_DIAGNOSTICS=1`.
 
 For a nonpublishing hosted replay, select `screenshots` in **Android Emulator
-Diagnostic** and supply the exact candidate commit SHA. It runs the same phone
+Diagnostic**, choose the candidate branch in **Use workflow from**, and supply
+that branch's exact commit SHA. Screenshot execution is pinned to the selected
+workflow revision; a different target SHA fails before candidate code runs.
+It runs the same phone
 and Wear capture script with `ANDROID_SCREENSHOT_DIAGNOSTICS=1`, recording phase
 timings, host resource samples, emulator/image identity, and bounded system/ANR
 diagnostics on failure before emulator cleanup. Diagnostic artifacts expire after

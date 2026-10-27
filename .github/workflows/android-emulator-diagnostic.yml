@@ -132,7 +132,8 @@ jobs:
         if: inputs.operation == 'screenshots'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.target_sha }}
+          # Execute only the revision selected for this workflow, never a separate input revision.
+          ref: ${{ github.workflow_sha }}
           fetch-depth: 1
           persist-credentials: false
 

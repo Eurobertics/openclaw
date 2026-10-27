@@ -603,13 +603,24 @@ describe("mobile release CI tools", () => {
     expect(screenshotCheckout).toMatchObject({
       uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
       with: {
-        ref: "${{ inputs.target_sha }}",
+        ref: "${{ github.workflow_sha }}",
         "fetch-depth": 1,
         "persist-credentials": false,
       },
     });
     expect(screenshotHead?.env).toEqual({ TARGET_SHA: "${{ inputs.target_sha }}" });
     expect(screenshotHead?.run).toContain('test "$(git rev-parse HEAD)" = "$TARGET_SHA"');
+    const workflowSha = git(process.cwd(), "rev-parse", "HEAD");
+    for (const [targetSha, status] of [
+      [workflowSha, 0],
+      ["0".repeat(40), 1],
+    ] as const) {
+      expect(
+        bash(expectDefined(screenshotHead?.run, "screenshot source verification"), {
+          TARGET_SHA: targetSha,
+        }).status,
+      ).toBe(status);
+    }
     expect(screenshotNode).toMatchObject({
       uses: "./.github/actions/setup-node-env",
       with: { "cache-mode": "off", "install-bun": "true" },
