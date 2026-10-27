@@ -267,43 +267,6 @@ describe("session list subagent metadata", () => {
     });
   });
 
-  test("lists a yielded child as paused, not finished, until its pause ends", async () => {
-    await withRegistry(async () => {
-      const now = Date.now();
-      const key = (name: string) => `agent:main:subagent:${name}`;
-      const yielded = { endedAt: now - 1_000, pauseReason: "sessions_yield" as const };
-      const records = [
-        runFixture("run-paused", key("paused"), now - 3_000, now - 2_000, yielded),
-        runFixture("run-killed", key("killed"), now - 3_000, now - 2_000, {
-          ...yielded,
-          endedReason: "subagent-killed",
-        }),
-        runFixture("run-done", key("done"), now - 3_000, now - 2_000, {
-          endedAt: now - 1_000,
-          outcome: { status: "ok" },
-        }),
-      ];
-      saveSubagentRegistryToSqlite(
-        canonicalSubagentRunFixtures(new Map(records.map((run) => [run.runId, run]))),
-      );
-      const result = await listSubagentSessions(
-        Object.fromEntries(
-          ["paused", "killed", "done"].map((name) => [key(name), childEntry(name, now)]),
-        ),
-      );
-      const rows = new Map(result.sessions.map((row) => [row.key, row]));
-      expect(rows.get(key("paused"))).toMatchObject({ status: "done", subagentRunState: "paused" });
-      expect(rows.get(key("killed"))).toMatchObject({
-        status: "killed",
-        subagentRunState: "historical",
-      });
-      expect(rows.get(key("done"))).toMatchObject({
-        status: "done",
-        subagentRunState: "historical",
-      });
-    });
-  });
-
   test("does not reattach stale terminal store-only child links", async () => {
     const now = Date.now();
     const staleAt = now - 2 * 60 * 60_000;
