@@ -217,7 +217,7 @@ describe("resolveMatrixAuth", () => {
   });
 
   it("replaces a revoked cached token with a fresh password login (#186011)", async () => {
-    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "revoked-token" });
+    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "revoked-token" }); // pragma: allowlist secret
     credentialsMatch.mockReturnValue(true);
     mocks.request
       .mockRejectedValueOnce(
@@ -229,7 +229,7 @@ describe("resolveMatrixAuth", () => {
       .mockResolvedValueOnce({
         user_id: identity.user_id,
         device_id: "FRESHDEVICE",
-        access_token: "fresh-token",
+        access_token: "fresh-token", // pragma: allowlist secret
       });
 
     const auth = await resolveAuth(passwordConfig);
@@ -239,16 +239,16 @@ describe("resolveMatrixAuth", () => {
     expect(mocks.request).toHaveBeenLastCalledWith(
       expect.objectContaining({ method: "POST", endpoint: "/_matrix/client/v3/login" }),
     );
-    expect(auth).toMatchObject({ accessToken: "fresh-token", deviceId: "FRESHDEVICE" });
+    expect(auth).toMatchObject({ accessToken: "fresh-token", deviceId: "FRESHDEVICE" }); // pragma: allowlist secret
     expectSavedCredentials(mocks.save, "default", {
       ...tokenConfig,
-      accessToken: "fresh-token",
+      accessToken: "fresh-token", // pragma: allowlist secret
       deviceId: "FRESHDEVICE",
     });
   });
 
   it("keeps the cached token when whoami fails for reasons other than revocation", async () => {
-    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "flaky-token" });
+    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "flaky-token" }); // pragma: allowlist secret
     credentialsMatch.mockReturnValue(true);
     mocks.request.mockRejectedValue(
       Object.assign(new Error("Internal server error"), { statusCode: 500 }),
@@ -256,18 +256,18 @@ describe("resolveMatrixAuth", () => {
 
     const auth = await resolveAuth(passwordConfig);
 
-    expect(auth).toMatchObject({ accessToken: "flaky-token" });
+    expect(auth).toMatchObject({ accessToken: "flaky-token" }); // pragma: allowlist secret
     expect(mocks.clear).not.toHaveBeenCalled();
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it("verifies a cached token once per process when password login is available", async () => {
-    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "live-token" });
+    loadCredentials.mockResolvedValue({ ...cachedCredentials, accessToken: "live-token" }); // pragma: allowlist secret
     credentialsMatch.mockReturnValue(true);
     mocks.request.mockResolvedValue(identity);
 
-    await expect(resolveAuth(passwordConfig)).resolves.toMatchObject({ accessToken: "live-token" });
-    await expect(resolveAuth(passwordConfig)).resolves.toMatchObject({ accessToken: "live-token" });
+    await expect(resolveAuth(passwordConfig)).resolves.toMatchObject({ accessToken: "live-token" }); // pragma: allowlist secret
+    await expect(resolveAuth(passwordConfig)).resolves.toMatchObject({ accessToken: "live-token" }); // pragma: allowlist secret
 
     expect(mocks.request).toHaveBeenCalledTimes(1);
     expectWhoami();
