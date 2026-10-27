@@ -7139,6 +7139,111 @@ it("retains exact completed Linux bundle bytes after packaging fails without adm
   expect(workflow.jobs.build_linux.outputs).not.toHaveProperty("unqualified_artifact_id");
 });
 
+it.skipIf(process.platform === "win32")(
+  "admits only trusted successful AOT artifact runs before downloading",
+  () => {
+    const steps = readWorkflow(".github/workflows/linux-app.yml").jobs.build
+      .steps as WorkflowStep[];
+    const admission = requiredWorkflowStep(steps, "Validate prebuilt AOT artifact source");
+    const download = requiredWorkflowStep(steps, "Download prebuilt AOT runtime");
+    const build = requiredWorkflowStep(steps, "Build Linux companion bundles");
+    expect(steps.indexOf(admission)).toBeLessThan(steps.indexOf(download));
+    expect(steps.indexOf(download)).toBeLessThan(steps.indexOf(build));
+    expect(admission["continue-on-error"]).not.toBe(true);
+    for (const step of [download, build]) {
+      // Without a status function, GitHub applies success() to the step's condition.
+      expect(step.if).not.toMatch(/\b(?:always|success|failure|cancelled)\s*\(/u);
+    }
+    const root = tempDirs.make("openclaw-aot-artifact-admission-");
+    const bin = path.join(root, "bin");
+    const calls = path.join(root, "calls");
+    const metadata = path.join(root, "run.json");
+    mkdirSync(bin);
+    writeExecutable(path.join(bin, "gh"), [
+      "#!/bin/sh",
+      'printf "%s\\n" "$*" >> "$AOT_CALLS"',
+      '[ "$*" = "api repos/openclaw/openclaw/actions/runs/123" ] || exit 64',
+      'cat "$AOT_RUN_FIXTURE"',
+      'exit "${AOT_GH_EXIT:-0}"',
+    ]);
+    const validRun = {
+      status: "completed",
+      conclusion: "success",
+      event: "push",
+      head_repository: { full_name: "openclaw/openclaw" },
+    };
+    const scenarios: Array<{
+      name: string;
+      run?: Record<string, unknown>;
+      runId?: string;
+      artifactName?: string;
+      ghExit?: number;
+      accepted: boolean;
+      queried: boolean;
+    }> = [
+      { name: "push", accepted: true, queried: true },
+      { name: "manual", run: { event: "workflow_dispatch" }, accepted: true, queried: true },
+      { name: "pull request", run: { event: "pull_request" }, accepted: false, queried: true },
+      {
+        name: "fork push",
+        run: { head_repository: { full_name: "fork/openclaw" } },
+        accepted: false,
+        queried: true,
+      },
+      {
+        name: "missing head repository",
+        run: { head_repository: null },
+        accepted: false,
+        queried: true,
+      },
+      { name: "failed", run: { conclusion: "failure" }, accepted: false, queried: true },
+      { name: "unfinished", run: { status: "in_progress" }, accepted: false, queried: true },
+      { name: "invalid run id", runId: "123/other", accepted: false, queried: false },
+      {
+        name: "invalid artifact name",
+        artifactName: "../runtime",
+        accepted: false,
+        queried: false,
+      },
+      { name: "metadata request failed", ghExit: 1, accepted: false, queried: true },
+    ];
+    for (const scenario of scenarios) {
+      writeFileSync(calls, "");
+      writeFileSync(metadata, JSON.stringify({ ...validRun, ...scenario.run }));
+      const result = runWorkflowShellScript(expectDefined(admission.run, "AOT admission script"), {
+        cwd: root,
+        env: {
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          AOT_RUN_ID: scenario.runId ?? "123",
+          AOT_ARTIFACT_NAME: scenario.artifactName ?? "linux-aot",
+          AOT_CALLS: calls,
+          AOT_RUN_FIXTURE: metadata,
+          AOT_GH_EXIT: String(scenario.ghExit ?? 0),
+        },
+      });
+      expect(result.status === 0, `${scenario.name}: ${result.stdout}${result.stderr}`).toBe(
+        scenario.accepted,
+      );
+      expect(readFileSync(calls, "utf8"), scenario.name).toBe(
+        scenario.queried ? "api repos/openclaw/openclaw/actions/runs/123\n" : "",
+      );
+      for (const step of [download, build]) {
+        expect(
+          evaluateWorkflowCondition(`success() && (${step.if})`, {
+            eventName: "workflow_dispatch",
+            repository: "openclaw/openclaw",
+            runAttempt: 1,
+            failed: result.status !== 0,
+            inputs: { desktop_runtime: "aot" },
+          }),
+          `${scenario.name}: ${step.name}`,
+        ).toBe(scenario.accepted);
+      }
+    }
+  },
+);
+
 it("isolates release credentials and verifies trusted AppImage and signing tools", () => {
   const pinned = {
     name: "Prepare Git owner",
