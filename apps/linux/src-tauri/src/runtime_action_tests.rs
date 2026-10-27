@@ -480,7 +480,7 @@ fn previous_bun_runtime_is_reported_for_manual_recovery() {
 }
 
 #[test]
-fn health_requires_the_intended_service_and_its_listener_not_the_inspecting_cli_runtime() {
+fn health_requires_the_intended_service_and_rejects_reported_foreign_listeners() {
     let fixture = Fixture::new();
     let healthy = fixture.healthy();
     assert!(Observation(healthy.clone()).healthy_for(&fixture.runtime()));
@@ -494,7 +494,8 @@ fn health_requires_the_intended_service_and_its_listener_not_the_inspecting_cli_
         ("/port/listeners/0/pid", 9000.into()),
         ("/port/port", 18790.into()),
         ("/port/status", "unknown".into()),
-        ("/port/listeners", serde_json::json!([])),
+        ("/port/listeners", Value::Null),
+        ("/port/listeners", serde_json::json!({})),
         ("/rpc/ok", false.into()),
     ] {
         let mut state = healthy.clone();
@@ -507,6 +508,39 @@ fn health_requires_the_intended_service_and_its_listener_not_the_inspecting_cli_
     let mut state = healthy;
     state["port"]["listeners"][0] = serde_json::json!({ "pid": 9000, "ppid": 4100 });
     assert!(Observation(state).healthy_for(&fixture.runtime()));
+    let mut missing = fixture.healthy();
+    missing["port"].as_object_mut().unwrap().remove("listeners");
+    assert!(!Observation(missing).healthy_for(&fixture.runtime()));
+}
+
+#[test]
+fn activation_accepts_a_healthy_service_without_optional_process_details() {
+    let fixture = Fixture::new();
+    let mut healthy = fixture.healthy();
+    healthy["port"]["listeners"] = serde_json::json!([]);
+    healthy["port"]["hints"] = serde_json::json!([
+        "Port is in use but process details are unavailable (install lsof or run as an admin user)."
+    ]);
+    fs::write(
+        fixture.0.join("healthy.json"),
+        serde_json::to_vec(&healthy).unwrap(),
+    )
+    .unwrap();
+    let cli = fixture.cli();
+    let confirmed = inspect(&cli).unwrap();
+
+    let result = perform(
+        &cli,
+        &fixture.runtime(),
+        &confirmed,
+        false,
+        &|| true,
+        Duration::ZERO,
+    )
+    .unwrap();
+
+    assert!(result.healthy_for(&fixture.runtime()));
+    assert_eq!(fixture.installs(), 1);
 }
 
 #[test]

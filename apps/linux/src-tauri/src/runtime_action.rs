@@ -252,11 +252,11 @@ impl Observation {
                 .pointer("/port/listeners")
                 .and_then(Value::as_array)
                 .is_some_and(|listeners| {
-                    !listeners.is_empty()
-                        && listeners.iter().all(|listener| {
-                            listener.get("pid").and_then(Value::as_u64) == Some(pid)
-                                || listener.get("ppid").and_then(Value::as_u64) == Some(pid)
-                        })
+                    // Process diagnostics are optional; reported foreign owners still reject health.
+                    listeners.iter().all(|listener| {
+                        listener.get("pid").and_then(Value::as_u64) == Some(pid)
+                            || listener.get("ppid").and_then(Value::as_u64) == Some(pid)
+                    })
                 })
             && self.flag("/rpc/ok") == Some(true)
     }
